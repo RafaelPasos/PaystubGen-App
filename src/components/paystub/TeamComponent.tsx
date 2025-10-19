@@ -132,8 +132,7 @@ export default function TeamComponent({ team, isAuthenticated }: { team: Team, i
                              return(
                                 <td key={dayIndex} className="p-1">
                                     <Input
-                                        type="number"
-                                        min="0"
+                                        type="text"
                                         value={entry?.quantity ?? 0}
                                         onChange={(e) => handleProductionChange(employee.id, item.id, dayIndex, e.currentTarget.value)}
                                         className="w-20 p-2"
