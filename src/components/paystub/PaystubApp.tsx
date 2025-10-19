@@ -54,6 +54,10 @@ export default function PaystubApp() {
   };
 
   const handleSaveChanges = async () => {
+    if (!isAuthenticated) {
+      setIsLoginModalOpen(true);
+      return;
+    }
     try {
         await saveAllChanges();
         toast({ title: "Success", description: "Changes saved successfully." });
@@ -221,7 +225,7 @@ export default function PaystubApp() {
           </Tabs>
 
           <footer className="mt-12 text-center flex justify-center items-center gap-4">
-            {isAuthenticated && hasChanges && (
+            {hasChanges && (
                 <Button onClick={handleSaveChanges} className="bg-yellow-500 text-white font-bold px-10 py-4 rounded-lg shadow-xl hover:bg-yellow-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-yellow-500 transition-transform transform hover:scale-105 text-lg h-auto">
                     GUARDAR CAMBIOS
                 </Button>
