@@ -73,6 +73,7 @@ export default function TeamComponent({ team, isAuthenticated }: { team: Team, i
                         value={localRates[item.id] ?? ''}
                         onChange={(e) => handleRateChange(item.id, e.currentTarget.value)}
                         className="w-full pl-7 p-3"
+                        disabled={!isAuthenticated}
                       />
                     </div>
                   </div>
