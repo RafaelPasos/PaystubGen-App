@@ -12,6 +12,7 @@ import 'jspdf-autotable';
 import { useToast } from '@/hooks/use-toast';
 import { startOfWeek, formatISO } from 'date-fns';
 import Loading from '@/app/loading';
+import { Input } from '@/components/ui/input';
 
 // Extend jsPDF with autoTable - this is a workaround for module augmentation in a single file
 declare module 'jspdf' {
@@ -22,11 +23,23 @@ declare module 'jspdf' {
   }
 }
 
+const SOFT_PASSWORD = "password"; // A simple, hardcoded password
 
 export default function PaystubApp() {
   const [payDate, setPayDate] = useState<Date | undefined>(new Date());
   const { employees, items, production, teams, loading, hasChanges, saveAllChanges } = useData();
   const { toast } = useToast();
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [password, setPassword] = useState('');
+
+  const handleLogin = () => {
+    if (password === SOFT_PASSWORD) {
+      setIsAuthenticated(true);
+      toast({ title: "Success", description: "Authenticated successfully." });
+    } else {
+      toast({ title: "Error", description: "Incorrect password.", variant: "destructive" });
+    }
+  };
 
   const handleSaveChanges = async () => {
     try {
@@ -141,6 +154,32 @@ export default function PaystubApp() {
     return <Loading />;
   }
 
+  if (!isAuthenticated) {
+    return (
+      <div className="flex flex-col min-h-screen bg-gray-100 text-gray-800">
+        <Header />
+        <main className="flex-1 max-w-lg mx-auto p-4 sm:p-6 lg:p-8 w-full mt-10">
+          <div className="bg-white p-8 rounded-2xl shadow-lg">
+            <h2 className="text-2xl font-semibold mb-6 text-center">Authentication Required</h2>
+            <div className="space-y-4">
+              <Input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="Enter password"
+                className="w-full p-3"
+                onKeyDown={(e) => e.key === 'Enter' && handleLogin()}
+              />
+              <Button onClick={handleLogin} className="w-full bg-blue-600 text-white font-bold py-3 rounded-lg shadow-lg hover:bg-blue-700 text-lg h-auto">
+                Login
+              </Button>
+            </div>
+          </div>
+        </main>
+      </div>
+    );
+  }
+
   return (
       <div className="flex flex-col min-h-screen bg-gray-100 text-gray-800">
         <Header />
@@ -162,7 +201,7 @@ export default function PaystubApp() {
             </TabsList>
             {teams.map(team => (
                <TabsContent key={team.id} value={team.name}>
-                <TeamComponent team={team} />
+                <TeamComponent team={team} isAuthenticated={isAuthenticated} />
               </TabsContent>
             ))}
           </Tabs>
