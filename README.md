@@ -2,6 +2,10 @@
 
 This is a web-based application designed to streamline the process of tracking employee production and generating weekly paystubs. It's built for a specific workflow where employee pay is calculated based on the quantity of items they produce, with different rates for different items. The application is designed to be intuitive for data entry clerks while providing secure, role-based access for administrative tasks.
 
+## Live Demo
+### https://studio-6461357104-730f1.web.app/
+
+
 ## Key Functionalities
 
 - **Team-Based Data Management:** The entire application is structured around teams (e.g., "Corazones", "Hojas"). Each team has its own set of employees and its own specific list of production items.
