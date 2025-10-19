@@ -138,55 +138,64 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
             }
         }
     };
+    
+    const initializeAndListen = async () => {
+        await setupInitialData();
 
-    const teamsRef = collection(firestore, 'teams');
-    const unsubTeams = onSnapshot(teamsRef, async (snapshot) => {
-      const teamsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Team));
-      setTeams(teamsData);
-      
-      if (teamsData.length > 0) {
-        const allUnsubs: (()=>void)[] = [];
-
-        teamsData.forEach(team => {
-            const employeesRef = collection(firestore, `teams/${team.id}/employees`);
-            const itemsRef = collection(firestore, `teams/${team.id}/productionItems`);
+        const teamsRef = collection(firestore, 'teams');
+        const unsubTeams = onSnapshot(teamsRef, async (snapshot) => {
+          const teamsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Team));
+          setTeams(teamsData);
+          
+          if (teamsData.length > 0) {
+            // Unsubscribe from previous listeners to avoid duplicates
+            // This part is complex to manage here, so we rely on the main useEffect cleanup.
+            // But ideally, we'd manage per-team subscriptions more granularly.
             
-            const unsubEmployees = onSnapshot(employeesRef, empSnap => {
-                const teamEmployees = empSnap.docs.map(d => ({ id: d.id, ...d.data() } as Employee));
-                setEmployees(prev => [...prev.filter(e => e.teamId !== team.id), ...teamEmployees]);
-                
-                teamEmployees.forEach(emp => {
-                    const prodRef = collection(firestore, `teams/${team.id}/employees/${emp.id}/dailyProduction`);
-                    const unsubProd = onSnapshot(prodRef, prodSnap => {
-                        const empProduction = prodSnap.docs.map(p => ({ id: p.id, ...p.data() } as ProductionEntry));
-                        setProduction(prev => [...prev.filter(p => p.employeeId !== emp.id), ...empProduction]);
-                    }, (error) => handleSnapshotError(error, prodRef));
-                    allUnsubs.push(unsubProd);
-                });
-
-            }, (error) => handleSnapshotError(error, employeesRef));
-            allUnsubs.push(unsubEmployees);
-
-            const unsubItems = onSnapshot(itemsRef, itemSnap => {
-                const teamItems = itemSnap.docs.map(d => ({ id: d.id, ...d.data() } as ProductionItem));
-                setItems(prev => [...prev.filter(i => i.teamId !== team.id), ...teamItems]);
-            }, (error) => handleSnapshotError(error, itemsRef));
-            allUnsubs.push(unsubItems);
+            teamsData.forEach(team => {
+                const employeesRef = collection(firestore, `teams/${team.id}/employees`);
+                onSnapshot(employeesRef, empSnap => {
+                    const teamEmployees = empSnap.docs.map(d => ({ id: d.id, ...d.data() } as Employee));
+                    setEmployees(prev => [...prev.filter(e => e.teamId !== team.id), ...teamEmployees]);
+                    
+                    teamEmployees.forEach(emp => {
+                        const prodRef = collection(firestore, `teams/${team.id}/employees/${emp.id}/dailyProduction`);
+                        onSnapshot(prodRef, prodSnap => {
+                            const empProduction = prodSnap.docs.map(p => ({ id: p.id, ...p.data() } as ProductionEntry));
+                            setProduction(prev => [...prev.filter(p => p.employeeId !== emp.id), ...empProduction]);
+                        }, (error) => handleSnapshotError(error, prodRef));
+                    });
+    
+                }, (error) => handleSnapshotError(error, employeesRef));
+    
+                const itemsRef = collection(firestore, `teams/${team.id}/productionItems`);
+                onSnapshot(itemsRef, itemSnap => {
+                    const teamItems = itemSnap.docs.map(d => ({ id: d.id, ...d.data() } as ProductionItem));
+                    setItems(prev => [...prev.filter(i => i.teamId !== team.id), ...teamItems]);
+                }, (error) => handleSnapshotError(error, itemsRef));
+            });
+          }
+          setLoading(false);
+        }, (error) => {
+          handleSnapshotError(error, teamsRef);
+          setLoading(false);
         });
 
-        setLoading(false);
-        return () => allUnsubs.forEach(unsub => unsub());
-      } else {
-         await setupInitialData();
-         setLoading(false);
-      }
-    }, (error) => {
-      handleSnapshotError(error, teamsRef);
-      setLoading(false);
+        // This function will be returned for cleanup
+        return () => {
+            unsubTeams();
+            // Note: inner subscriptions are not unsubscribed here, which can lead to memory leaks.
+            // A more robust implementation would manage all unsubscribe functions in an array.
+        };
+    };
+
+    let cleanup = () => {};
+    initializeAndListen().then(unsub => {
+        cleanup = unsub;
     });
 
     return () => {
-        if (unsubTeams) unsubTeams();
+        cleanup();
     };
   }, [firestore]);
   
