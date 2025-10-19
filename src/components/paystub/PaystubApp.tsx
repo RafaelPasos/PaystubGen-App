@@ -11,6 +11,7 @@ import { jsPDF } from "jspdf";
 import 'jspdf-autotable';
 import { useToast } from '@/hooks/use-toast';
 import { startOfWeek, formatISO } from 'date-fns';
+import Loading from '@/app/loading';
 
 // Extend jsPDF with autoTable - this is a workaround for module augmentation in a single file
 declare module 'jspdf' {
@@ -24,7 +25,7 @@ declare module 'jspdf' {
 
 export default function PaystubApp() {
   const [payDate, setPayDate] = useState<Date | undefined>(new Date());
-  const { employees, items, production, teams } = useData();
+  const { employees, items, production, teams, loading } = useData();
   const { toast } = useToast();
 
   const generatePDF = () => {
@@ -122,6 +123,10 @@ export default function PaystubApp() {
 
     doc.save(`paystubs_${formattedPayDate.replace(/-/g, '_')}.pdf`);
   };
+
+  if (loading) {
+    return <Loading />;
+  }
 
   return (
       <div className="flex flex-col min-h-screen bg-gray-100 text-gray-800">
