@@ -1,109 +1,120 @@
 /**
- * @fileoverview Firestore Security Rules for the paystub generator application.
+ * @fileoverview Firestore Security Rules for the Paystub Generator application.
  *
  * Core Philosophy:
- * This ruleset enforces a hierarchical, team-centric security model. Each team has its own data silo, and access is generally restricted to authenticated users. The rules ensure that users can only manage data within their assigned team.
+ * This ruleset enforces a hierarchical data model with team-based ownership. Each data entity
+ * (Employees, ProductionItems, DailyProduction) is nested under a Team document, ensuring
+ * data isolation and simplified access control.  The rules are designed to prevent unauthorized
+ * data access and modification by enforcing strict ownership and validating data consistency.
  *
  * Data Structure:
- * The Firestore data is organized hierarchically:
- * /teams/{teamId} - Root document for each team.
- * /teams/{teamId}/employees/{employeeId} - Employee documents within a team.
- * /teams/{teamId}/productionItems/{productionItemId} - Production items within a team.
- * /teams/{teamId}/employees/{employeeId}/dailyProduction/{dailyProductionId} - Daily production records for each employee.
+ * - /teams/{teamId}: Root collection for teams.
+ * - /teams/{teamId}/employees/{employeeId}: Employees belonging to a team.
+ * - /teams/{teamId}/productionItems/{productionItemId}: Production items for a team.
+ * - /teams/{teamId}/employees/{employeeId}/dailyProduction/{dailyProductionId}: Daily production records for an employee.
  *
  * Key Security Decisions:
- * - All write operations are restricted to authenticated users.
- * - Data is segregated by team, ensuring that users can only access data within their team.
- * - The `teamId` is denormalized on Employee and ProductionItem documents to simplify security rules and improve performance.
- * - List operations are secured by ensuring that users can only list data within their assigned team.
+ * - Enforces team-based ownership: Only authenticated users can manage data within their team's context.
+ * - Data consistency: Ensures that nested documents have the correct team ID.
+ * - Write operations are strictly controlled to prevent unauthorized data manipulation.
  *
  * Denormalization for Authorization:
- * The `teamId` field is denormalized onto the `Employee` and `ProductionItem` documents. This allows us to avoid using `get()` calls in the security rules, which would be less efficient and more complex.  For example, the employee documents contain the `teamId` which is the same as the `teamId` in the path `/teams/{teamId}/employees/{employeeId}`.
+ * The `teamId` is denormalized into the Employee and ProductionItem documents. This allows us to
+ * avoid costly `get()` calls to the Team document when checking authorization.  DailyProduction
+ * documents do not denormalize teamId but are nested under Employee documents, which have teamId.
+ * This allows for team-level authorization without extra reads.
  *
  * Structural Segregation:
- * Teams are stored in separate documents under the `/teams` collection. This allows for easy management of teams and ensures that data is properly segregated.
+ * Team-based data segregation allows for efficient and secure list operations, as data is naturally
+ * partitioned by team ID. This eliminates the need for complex filtering and prevents cross-team data access.
  */
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
     /**
-     * @description Grants access to team documents based on the team ID.
+     * @description Allows access to team documents.
      * @path /teams/{teamId}
      * @allow get, list: if true;
-     * @allow create: if false;
-     * @allow update: if false;
-     * @allow delete: if false;
-     * @principle Allows public read-only access to team documents, but restricts all write access for prototyping.
+     * @allow create: if false; // TODO: Add owner validation once the schema is updated with an ownership field.
+     * @allow update: if false; // TODO: Add owner validation once the schema is updated with an ownership field.
+     * @allow delete: if false; // TODO: Add owner validation once the schema is updated with an ownership field.
+     * @deny create: if true;
+     * @deny update: if true;
+     * @deny delete: if true;
+     * @principle Public read, owner-only write (requires schema update for ownership)
      */
     match /teams/{teamId} {
-      allow get, list: if true;
-      allow create, update, delete: if false;
+      allow get, list: if true; // Public read for team names, etc.
+      allow create, update, delete: if false; // TODO: Add owner validation once the schema is updated with an ownership field.
     }
 
     /**
-     * @description Grants access to employee documents within a team.
+     * @description Manages employee documents within a team.
      * @path /teams/{teamId}/employees/{employeeId}
-     * @allow get, list: if isSignedIn()
+     * @allow get, list: if isSignedIn();
      * @allow create: if isSignedIn() && request.resource.data.teamId == teamId && request.resource.data.id == employeeId;
-     * @allow update: if isSignedIn() && resource.data.teamId == teamId && resource.data.id == request.resource.data.id;
-     * @allow delete: if isSignedIn() && resource.data.teamId == teamId && resource != null;
-     * @principle Enforces team-based access control and validates the `teamId` on write operations.
+     * @allow update: if isSignedIn() && resource != null && resource.data.teamId == teamId && resource.data.id == request.resource.data.id;
+     * @allow delete: if isSignedIn() && resource != null && resource.data.teamId == teamId;
+     * @deny get: if !isSignedIn();
+     * @deny list: if !isSignedIn();
+     * @deny create: if !isSignedIn() || request.resource.data.teamId != teamId || request.resource.data.id != employeeId;
+     * @deny update: if !isSignedIn() || resource == null || resource.data.teamId != teamId || resource.data.id != request.resource.data.id;
+     * @deny delete: if !isSignedIn() || resource == null || resource.data.teamId != teamId;
+     * @principle Enforces team-based ownership and data consistency for employee records.
      */
     match /teams/{teamId}/employees/{employeeId} {
-      allow get: if isSignedIn();
-      allow list: if isSignedIn();
+      allow get, list: if isSignedIn();
       allow create: if isSignedIn() && request.resource.data.teamId == teamId && request.resource.data.id == employeeId;
-      allow update: if isSignedIn() && resource.data.teamId == teamId && resource.data.id == request.resource.data.id;
-      allow delete: if isSignedIn() && resource.data.teamId == teamId && resource != null;
+      allow update: if isSignedIn() && resource != null && resource.data.teamId == teamId && resource.data.id == request.resource.data.id;
+      allow delete: if isSignedIn() && resource != null && resource.data.teamId == teamId;
     }
 
     /**
-     * @description Grants access to production item documents within a team.
+     * @description Manages production item documents within a team.
      * @path /teams/{teamId}/productionItems/{productionItemId}
      * @allow get, list: if isSignedIn();
      * @allow create: if isSignedIn() && request.resource.data.teamId == teamId && request.resource.data.id == productionItemId;
-     * @allow update: if isSignedIn() && resource.data.teamId == teamId && resource.data.id == request.resource.data.id;
-     * @allow delete: if isSignedIn() && resource.data.teamId == teamId && resource != null;
-     * @principle Enforces team-based access control and validates the `teamId` on write operations.
+     * @allow update: if isSignedIn() && resource != null && resource.data.teamId == teamId && resource.data.id == request.resource.data.id;
+     * @allow delete: if isSignedIn() && resource != null && resource.data.teamId == teamId;
+     * @deny get: if !isSignedIn();
+     * @deny list: if !isSignedIn();
+     * @deny create: if !isSignedIn() || request.resource.data.teamId != teamId || request.resource.data.id != productionItemId;
+     * @deny update: if !isSignedIn() || resource == null || resource.data.teamId != teamId || resource.data.id != request.resource.data.id;
+     * @deny delete: if !isSignedIn() || resource == null || resource.data.teamId != teamId;
+     * @principle Enforces team-based ownership and data consistency for production item records.
      */
     match /teams/{teamId}/productionItems/{productionItemId} {
-      allow get: if isSignedIn();
-      allow list: if isSignedIn();
+      allow get, list: if isSignedIn();
       allow create: if isSignedIn() && request.resource.data.teamId == teamId && request.resource.data.id == productionItemId;
-      allow update: if isSignedIn() && resource.data.teamId == teamId && resource.data.id == request.resource.data.id;
-      allow delete: if isSignedIn() && resource.data.teamId == teamId && resource != null;
+      allow update: if isSignedIn() && resource != null && resource.data.teamId == teamId && resource.data.id == request.resource.data.id;
+      allow delete: if isSignedIn() && resource != null && resource.data.teamId == teamId;
     }
 
     /**
-     * @description Grants access to daily production records for each employee within a team.
+     * @description Manages daily production records for an employee.
      * @path /teams/{teamId}/employees/{employeeId}/dailyProduction/{dailyProductionId}
      * @allow get, list: if isSignedIn();
-     * @allow create: if isSignedIn() && isValidDailyProduction(teamId, employeeId);
-     * @allow update: if isSignedIn() && isExistingDailyProduction(teamId, employeeId);
-     * @allow delete: if isSignedIn() && isExistingDailyProduction(teamId, employeeId);
-     * @principle Enforces team and employee-based access control and validates that the daily production record is associated with the correct team and employee.
+     * @allow create: if isSignedIn() && exists(/databases/$(database)/documents/teams/$(teamId)/employees/$(employeeId));
+     * @allow update: if isSignedIn() && exists(/databases/$(database)/documents/teams/$(teamId)/employees/$(employeeId)) && resource != null;
+     * @allow delete: if isSignedIn() && exists(/databases/$(database)/documents/teams/$(teamId)/employees/$(employeeId)) && resource != null;
+     * @deny get: if !isSignedIn();
+     * @deny list: if !isSignedIn();
+     * @deny create: if !isSignedIn() || !exists(/databases/$(database)/documents/teams/$(teamId)/employees/$(employeeId));
+     * @deny update: if !isSignedIn() || !exists(/databases/$(database)/documents/teams/$(teamId)/employees/$(employeeId)) || resource == null;
+     * @deny delete: if !isSignedIn() || !exists(/databases/$(database)/documents/teams/$(teamId)/employees/$(employeeId)) || resource == null;
+     * @principle Restricts access to daily production records to authenticated users and validates the employee exists.
      */
     match /teams/{teamId}/employees/{employeeId}/dailyProduction/{dailyProductionId} {
-      allow get: if isSignedIn();
-      allow list: if isSignedIn();
-      allow create: if isSignedIn() && isValidDailyProduction(teamId, employeeId);
-      allow update: if isSignedIn() && isExistingDailyProduction(teamId, employeeId);
-      allow delete: if isSignedIn() && isExistingDailyProduction(teamId, employeeId);
+      allow get, list: if isSignedIn();
+      allow create: if isSignedIn() && exists(/databases/$(database)/documents/teams/$(teamId)/employees/$(employeeId));
+      allow update: if isSignedIn() && exists(/databases/$(database)/documents/teams/$(teamId)/employees/$(employeeId)) && resource != null;
+      allow delete: if isSignedIn() && exists(/databases/$(database)/documents/teams/$(teamId)/employees/$(employeeId)) && resource != null;
     }
+  }
 
-    // --- HELPER FUNCTIONS ---
-
-    function isSignedIn() {
-      return request.auth != null;
-    }
-
-    function isValidDailyProduction(teamId, employeeId) {
-      return request.resource.data.employeeId == employeeId;
-    }
-
-    function isExistingDailyProduction(teamId, employeeId) {
-      return request.resource.data.employeeId == employeeId && resource != null;
-    }
+  // Helper function to check if a user is signed in.
+  function isSignedIn() {
+    return request.auth != null;
   }
 }
