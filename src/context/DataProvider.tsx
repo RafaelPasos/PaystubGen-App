@@ -6,7 +6,7 @@ import { collection, onSnapshot, addDoc, updateDoc, deleteDoc, doc, DocumentData
 import { useFirestore } from '@/firebase';
 import type { Employee, ProductionItem, ProductionEntry, Team } from '@/lib/types';
 import { useToast } from "@/hooks/use-toast"
-import { addDocumentNonBlocking, deleteDocumentNonBlocking, updateDocumentNonBlocking } from '@/firebase/non-blocking-updates';
+import { addDocumentNonBlocking, deleteDocumentNonBlocking, updateDocumentNonBlocking, setDocumentNonBlocking } from '@/firebase/non-blocking-updates';
 import { startOfWeek, formatISO } from 'date-fns';
 import { errorEmitter } from '@/firebase/error-emitter';
 import { FirestorePermissionError } from '@/firebase/errors';
@@ -93,7 +93,13 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
             batch.set(docRef, newEntry);
         }
     }
-    await batch.commit();
+    batch.commit().catch(e => {
+        errorEmitter.emit('permission-error', new FirestorePermissionError({
+            operation: 'write',
+            path: `teams/${teamId}/employees/${employeeId}/dailyProduction`,
+            requestResourceData: 'Batched initial production entries'
+        }));
+    });
   };
 
 
@@ -103,27 +109,33 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
 
     const setupInitialData = async () => {
         const teamsRef = collection(firestore, 'teams');
-        const teamsSnap = await getDocs(teamsRef);
-        
-        if (teamsSnap.empty) {
-            const batch = writeBatch(firestore);
-            const teamRefs: {id: string, name: string}[] = [];
-
-            for (const team of defaultTeams) {
-                const teamRef = doc(teamsRef);
-                batch.set(teamRef, team);
-                teamRefs.push({id: teamRef.id, name: team.name});
+        try {
+            const teamsSnap = await getDocs(teamsRef);
+            
+            if (teamsSnap.empty) {
+                const batch = writeBatch(firestore);
+                const teamRefs: {id: string, name: string}[] = [];
+    
+                for (const team of defaultTeams) {
+                    const teamRef = doc(teamsRef);
+                    batch.set(teamRef, team);
+                    teamRefs.push({id: teamRef.id, name: team.name});
+                }
+    
+                for (const teamRef of teamRefs) {
+                    const teamItems = defaultItems[teamRef.name] || [];
+                    const itemsRef = collection(firestore, `teams/${teamRef.id}/productionItems`);
+                    teamItems.forEach(item => {
+                        const newItemRef = doc(itemsRef);
+                        batch.set(newItemRef, { ...item, teamId: teamRef.id });
+                    });
+                }
+                await batch.commit();
             }
-
-            for (const teamRef of teamRefs) {
-                const teamItems = defaultItems[teamRef.name] || [];
-                const itemsRef = collection(firestore, `teams/${teamRef.id}/productionItems`);
-                teamItems.forEach(item => {
-                    const newItemRef = doc(itemsRef);
-                    batch.set(newItemRef, { ...item, teamId: teamRef.id });
-                });
+        } catch (e) {
+             if (e instanceof FirestoreError) {
+                handleSnapshotError(e, teamsRef);
             }
-            await batch.commit();
         }
     };
 
@@ -143,7 +155,7 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
                 const teamEmployees = empSnap.docs.map(d => ({ id: d.id, ...d.data() } as Employee));
                 setEmployees(prev => [...prev.filter(e => e.teamId !== team.id), ...teamEmployees]);
                 
-                const prodUnsubs = teamEmployees.map(emp => {
+                teamEmployees.forEach(emp => {
                     const prodRef = collection(firestore, `teams/${team.id}/employees/${emp.id}/dailyProduction`);
                     const unsubProd = onSnapshot(prodRef, prodSnap => {
                         const empProduction = prodSnap.docs.map(p => ({ id: p.id, ...p.data() } as ProductionEntry));
@@ -166,6 +178,7 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
         return () => allUnsubs.forEach(unsub => unsub());
       } else {
          await setupInitialData();
+         setLoading(false);
       }
     }, (error) => {
       handleSnapshotError(error, teamsRef);
@@ -180,57 +193,51 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
 
   const addEmployee = async (employee: Omit<Employee, 'id'>) => {
     if (!firestore) return;
-    try {
-      const newDocRef = await addDoc(collection(firestore, `teams/${employee.teamId}/employees`), employee);
-      const teamItems = items.filter(item => item.teamId === employee.teamId);
-      await createInitialProductionEntries(newDocRef.id, employee.teamId, teamItems);
-    } catch(e) {
-      if (e instanceof FirestoreError) {
-        const error = new FirestorePermissionError({
-          path: `teams/${employee.teamId}/employees`,
-          operation: 'create',
-          requestResourceData: employee,
-        });
-        errorEmitter.emit('permission-error', error);
-      }
-    }
+    const ref = collection(firestore, `teams/${employee.teamId}/employees`);
+    addDocumentNonBlocking(ref, employee)
+      .then(newDocRef => {
+        if (newDocRef) {
+          const teamItems = items.filter(item => item.teamId === employee.teamId);
+          createInitialProductionEntries(newDocRef.id, employee.teamId, teamItems);
+        }
+      });
   };
 
   const updateEmployee = async (id: string, teamId: string, employee: Partial<Employee>) => {
     if (!firestore) return;
-    await updateDocumentNonBlocking(doc(firestore, `teams/${teamId}/employees`, id), employee as DocumentData);
+    updateDocumentNonBlocking(doc(firestore, `teams/${teamId}/employees`, id), employee as DocumentData);
   };
 
   const deleteEmployee = async (id: string, teamId: string) => {
     if (!firestore) return;
-    await deleteDocumentNonBlocking(doc(firestore, `teams/${teamId}/employees`, id));
+    deleteDocumentNonBlocking(doc(firestore, `teams/${teamId}/employees`, id));
   };
 
   const addItem = async (item: Omit<ProductionItem, 'id'>) => {
     if (!firestore) return;
-    await addDocumentNonBlocking(collection(firestore, `teams/${item.teamId}/productionItems`), item as DocumentData);
+    addDocumentNonBlocking(collection(firestore, `teams/${item.teamId}/productionItems`), item as DocumentData);
   };
 
   const updateItem = async (id: string, teamId: string, item: Partial<ProductionItem>) => {
     if (!firestore) return;
-    await updateDocumentNonBlocking(doc(firestore, `teams/${teamId}/productionItems`, id), item as DocumentData);
+    updateDocumentNonBlocking(doc(firestore, `teams/${teamId}/productionItems`, id), item as DocumentData);
   };
 
   const deleteItem = async (id: string, teamId: string) => {
     if (!firestore) return;
-    await deleteDocumentNonBlocking(doc(firestore, `teams/${teamId}/productionItems`, id));
+    deleteDocumentNonBlocking(doc(firestore, `teams/${teamId}/productionItems`, id));
   };
 
   const addProductionEntry = async (entry: Omit<ProductionEntry, 'id'>) => {
     if (!firestore) return;
     const employee = employees.find(e => e.id === entry.employeeId);
     if (!employee) return;
-    await addDocumentNonBlocking(collection(firestore, `teams/${employee.teamId}/employees/${entry.employeeId}/dailyProduction`), entry as DocumentData);
+    addDocumentNonBlocking(collection(firestore, `teams/${employee.teamId}/employees/${entry.employeeId}/dailyProduction`), entry as DocumentData);
   };
 
   const updateProductionEntry = async (id: string, teamId: string, employeeId: string, entry: Partial<ProductionEntry>) => {
      if (!firestore) return;
-     await updateDocumentNonBlocking(doc(firestore, `teams/${teamId}/employees/${employeeId}/dailyProduction`, id), entry as DocumentData);
+     updateDocumentNonBlocking(doc(firestore, `teams/${teamId}/employees/${employeeId}/dailyProduction`, id), entry as DocumentData);
   };
 
   const deleteProductionEntry = async (id: string) => {
