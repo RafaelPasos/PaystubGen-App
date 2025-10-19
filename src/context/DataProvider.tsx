@@ -247,23 +247,22 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
 
   const updateEmployee = async (id: string, teamId: string, employee: Partial<Employee>) => {
     if (!firestore) return;
-    updateDocumentNonBlocking(doc(firestore, `teams/${teamId}/employees`, id), employee as DocumentData);
+    updateDocumentNonBlocking(doc(firestore, `teams/${teamId}/employees`, id), employee);
   };
 
   const deleteEmployee = async (id: string, teamId: string) => {
     if (!firestore) return;
-    // Also delete subcollections if necessary, here just deleting the employee doc
     deleteDocumentNonBlocking(doc(firestore, `teams/${teamId}/employees`, id));
   };
 
   const addItem = async (item: Omit<ProductionItem, 'id'>) => {
     if (!firestore) return;
-    addDocumentNonBlocking(collection(firestore, `teams/${item.teamId}/productionItems`), item as DocumentData);
+    addDocumentNonBlocking(collection(firestore, `teams/${item.teamId}/productionItems`), item);
   };
 
   const updateItem = async (id: string, teamId: string, item: Partial<ProductionItem>) => {
     if (!firestore) return;
-    updateDocumentNonBlocking(doc(firestore, `teams/${teamId}/productionItems`, id), item as DocumentData);
+    updateDocumentNonBlocking(doc(firestore, `teams/${teamId}/productionItems`, id), item);
   };
 
   const deleteItem = async (id: string, teamId: string) => {
@@ -275,12 +274,12 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
     if (!firestore) return;
     const employee = employees.find(e => e.id === entry.employeeId);
     if (!employee) return;
-    addDocumentNonBlocking(collection(firestore, `teams/${employee.teamId}/employees/${entry.employeeId}/dailyProduction`), entry as DocumentData);
+    addDocumentNonBlocking(collection(firestore, `teams/${employee.teamId}/employees/${entry.employeeId}/dailyProduction`), entry);
   };
 
   const updateProductionEntry = async (id: string, teamId: string, employeeId: string, entry: Partial<ProductionEntry>) => {
      if (!firestore) return;
-     updateDocumentNonBlocking(doc(firestore, `teams/${teamId}/employees/${employeeId}/dailyProduction`, id), entry as DocumentData);
+     updateDocumentNonBlocking(doc(firestore, `teams/${teamId}/employees/${employeeId}/dailyProduction`, id), entry);
   };
 
   const deleteProductionEntry = async (id: string) => {

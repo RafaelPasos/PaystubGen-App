@@ -8,6 +8,9 @@ import {
   CollectionReference,
   DocumentReference,
   SetOptions,
+  writeBatch,
+  getDocsFromServer,
+  Firestore,
 } from 'firebase/firestore';
 import { errorEmitter } from '@/firebase/error-emitter';
 import {FirestorePermissionError} from '@/firebase/errors';
@@ -16,18 +19,18 @@ import {FirestorePermissionError} from '@/firebase/errors';
  * Initiates a setDoc operation for a document reference.
  * Does NOT await the write operation internally.
  */
-export function setDocumentNonBlocking(docRef: DocumentReference, data: any, options: SetOptions) {
-  setDoc(docRef, data, options).catch(error => {
+export function setDocumentNonBlocking(docRef: DocumentReference, data: any, options?: SetOptions) {
+  const promise = options ? setDoc(docRef, data, options) : setDoc(docRef, data);
+  promise.catch(error => {
     errorEmitter.emit(
       'permission-error',
       new FirestorePermissionError({
         path: docRef.path,
-        operation: 'write', // or 'create'/'update' based on options
+        operation: options && 'merge' in options ? 'update' : 'create',
         requestResourceData: data,
       })
     )
   })
-  // Execution continues immediately
 }
 
 
@@ -38,7 +41,7 @@ export function setDocumentNonBlocking(docRef: DocumentReference, data: any, opt
  */
 export function addDocumentNonBlocking(colRef: CollectionReference, data: any) {
   const promise = addDoc(colRef, data)
-    .catch(error => {
+    promise.catch(error => {
       errorEmitter.emit(
         'permission-error',
         new FirestorePermissionError({
@@ -86,4 +89,44 @@ export function deleteDocumentNonBlocking(docRef: DocumentReference) {
         })
       )
     });
+}
+
+/**
+ * Initiates a writeBatch operation.
+ * Does NOT await the write operation internally.
+ */
+export function commitBatchNonBlocking(db: Firestore, operations: (batch: ReturnType<typeof writeBatch>) => void) {
+    const batch = writeBatch(db);
+    operations(batch);
+    batch.commit().catch(error => {
+        // Batch writes don't have a single path, so we use a generic path.
+        // The detailed error from the emulator will still be very helpful.
+        errorEmitter.emit(
+            'permission-error',
+            new FirestorePermissionError({
+                path: 'batch-write',
+                operation: 'write',
+            })
+        );
+    });
+}
+
+/**
+ * Initiates a getDocsFromServer operation.
+ * Wraps in a try/catch to handle permissions.
+ */
+export async function getDocsFromServerNonBlocking(query: CollectionReference) {
+    try {
+        return await getDocsFromServer(query);
+    } catch (error) {
+        errorEmitter.emit(
+            'permission-error',
+            new FirestorePermissionError({
+                path: query.path,
+                operation: 'list',
+            })
+        );
+        // Return an empty-like structure or re-throw a custom error
+        return { docs: [], empty: true, size: 0, forEach: () => {}, ...Promise.resolve() };
+    }
 }
