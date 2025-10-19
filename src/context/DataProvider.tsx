@@ -2,10 +2,9 @@
 
 import type { ReactNode } from 'react';
 import { createContext, useContext, useEffect, useState, useCallback } from 'react';
-import { collection, onSnapshot, doc, DocumentData, query, writeBatch, getDocs, FirestoreError, CollectionReference, Query, getDoc, addDoc, updateDoc, deleteDoc } from 'firebase/firestore';
+import { collection, onSnapshot, doc, writeBatch, getDocs, FirestoreError, query, addDoc, updateDoc, deleteDoc, getDoc } from 'firebase/firestore';
 import { useFirestore } from '@/firebase';
 import type { Employee, ProductionItem, ProductionEntry, Team } from '@/lib/types';
-import { getDocsFromServerNonBlocking } from '@/firebase/non-blocking-updates';
 import { startOfWeek, formatISO, eachDayOfInterval } from 'date-fns';
 import { errorEmitter } from '@/firebase/error-emitter';
 import { FirestorePermissionError } from '@/firebase/errors';
@@ -67,9 +66,7 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
 
   const createInitialProductionEntries = useCallback(async (employeeId: string, teamId: string, teamItems: ProductionItem[]) => {
     if (!firestore) return;
-    if (teamItems.length === 0) {
-      return;
-    }
+    if (teamItems.length === 0) return;
 
     const batch = writeBatch(firestore);
     const weekStart = startOfWeek(new Date(), { weekStartsOn: 1 });
@@ -107,109 +104,102 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
     if (!firestore) return;
 
     let isMounted = true;
+    setLoading(true);
 
     const setupInitialData = async () => {
-      const teamsRef = collection(firestore, 'teams');
-      const teamsSnap = await getDocsFromServerNonBlocking(teamsRef).catch(e => {
-          handleSnapshotError(e, 'teams');
-          throw e;
-      });
-      
-      if (teamsSnap.empty) {
-        const batch = writeBatch(firestore);
-        for (const teamData of defaultTeams) {
-          const teamRef = doc(teamsRef);
-          batch.set(teamRef, teamData);
-          const teamItems = defaultItems[teamData.name] || [];
-          const itemsRef = collection(firestore, `teams/${teamRef.id}/productionItems`);
-          teamItems.forEach(item => {
-            const newItemRef = doc(itemsRef);
-            batch.set(newItemRef, { ...item, teamId: teamRef.id });
-          });
-        }
-        await batch.commit().catch(e => {
-            errorEmitter.emit('permission-error', new FirestorePermissionError({
-                operation: 'write',
-                path: 'teams',
-                requestResourceData: 'Initial teams and items batch write'
-            }));
+        const teamsRef = collection(firestore, 'teams');
+        const teamsSnap = await getDocs(teamsRef).catch(e => {
+            handleSnapshotError(e, 'teams');
             throw e;
         });
-      }
-    };
-    
-    const listenToData = async () => {
-      setLoading(true);
-      await setupInitialData().catch(err => {
-        console.error("Error setting up initial data:", err);
-        if (isMounted) setLoading(false);
-      });
-      
-      if (!isMounted) return;
 
-      const teamsQuery = query(collection(firestore, 'teams'));
-      const unsubscribe = onSnapshot(teamsQuery, async (teamsSnapshot) => {
+        if (teamsSnap.empty) {
+            const batch = writeBatch(firestore);
+            for (const teamData of defaultTeams) {
+                const teamRef = doc(teamsRef);
+                batch.set(teamRef, teamData);
+                const teamItems = defaultItems[teamData.name] || [];
+                const itemsRef = collection(firestore, `teams/${teamRef.id}/productionItems`);
+                teamItems.forEach(item => {
+                    const newItemRef = doc(itemsRef);
+                    batch.set(newItemRef, { ...item, teamId: teamRef.id });
+                });
+            }
+            await batch.commit().catch(e => {
+                errorEmitter.emit('permission-error', new FirestorePermissionError({
+                    operation: 'write',
+                    path: 'teams',
+                    requestResourceData: 'Initial teams and items batch write'
+                }));
+                throw e;
+            });
+        }
+    };
+
+    setupInitialData().then(() => {
         if (!isMounted) return;
 
-        const teamsData = teamsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Team));
-        
-        if (teamsData.length === 0) {
-            setTeams([]);
-            setItems([]);
-            setEmployees([]);
-            setProduction([]);
-            setLoading(false);
-            return;
-        }
-        
-        // Replace teams state completely
-        setTeams(teamsData);
+        const teamsQuery = query(collection(firestore, 'teams'));
+        const unsubscribe = onSnapshot(teamsQuery, async (teamsSnapshot) => {
+            if (!isMounted) return;
 
-        const allItems: ProductionItem[] = [];
-        const allEmployees: Employee[] = [];
-        const allProduction: ProductionEntry[] = [];
+            const teamsData = teamsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Team));
+            setTeams(teamsData);
 
-        for (const team of teamsData) {
-          const itemsQuery = query(collection(firestore, 'teams', team.id, 'productionItems'));
-          const employeesQuery = query(collection(firestore, 'teams', team.id, 'employees'));
+            if (teamsData.length === 0) {
+                setItems([]);
+                setEmployees([]);
+                setProduction([]);
+                setLoading(false);
+                return;
+            }
 
-          const [itemsSnap, employeesSnap] = await Promise.all([
-            getDocs(itemsQuery),
-            getDocs(employeesQuery)
-          ]);
+            const allItems: ProductionItem[] = [];
+            const allEmployees: Employee[] = [];
+            const allProduction: ProductionEntry[] = [];
 
-          itemsSnap.forEach(doc => allItems.push({ id: doc.id, ...doc.data() } as ProductionItem));
-          employeesSnap.forEach(doc => allEmployees.push({ id: doc.id, ...doc.data() } as Employee));
-          
-          for (const empDoc of employeesSnap.docs) {
-            const productionQuery = query(collection(firestore, 'teams', team.id, 'employees', empDoc.id, 'dailyProduction'));
-            const productionSnap = await getDocs(productionQuery);
-            productionSnap.forEach(doc => allProduction.push({ id: doc.id, ...doc.data() } as ProductionEntry));
-          }
-        }
-        
-        if (isMounted) {
-            setItems(allItems);
-            setEmployees(allEmployees);
-            setProduction(allProduction);
-            setLoading(false);
-        }
+            for (const team of teamsData) {
+                const itemsQuery = query(collection(firestore, 'teams', team.id, 'productionItems'));
+                const employeesQuery = query(collection(firestore, 'teams', team.id, 'employees'));
 
-      }, (err) => {
-          handleSnapshotError(err, 'teams');
-          if(isMounted) setLoading(false);
-      });
-      
-      return unsubscribe;
-    };
+                const [itemsSnap, employeesSnap] = await Promise.all([
+                    getDocs(itemsQuery).catch(() => ({ docs: [] })),
+                    getDocs(employeesQuery).catch(() => ({ docs: [] }))
+                ]);
 
-    const unsubPromise = listenToData();
+                itemsSnap.docs.forEach(doc => allItems.push({ id: doc.id, ...doc.data() } as ProductionItem));
+                employeesSnap.docs.forEach(doc => allEmployees.push({ id: doc.id, ...doc.data() } as Employee));
+                
+                for (const empDoc of employeesSnap.docs) {
+                    const productionQuery = query(collection(firestore, 'teams', team.id, 'employees', empDoc.id, 'dailyProduction'));
+                    const productionSnap = await getDocs(productionQuery).catch(() => ({ docs: [] }));
+                    productionSnap.docs.forEach(doc => allProduction.push({ id: doc.id, ...doc.data() } as ProductionEntry));
+                }
+            }
 
-    return () => {
-      isMounted = false;
-      unsubPromise.then(unsub => unsub && unsub());
-    };
-  }, [firestore, createInitialProductionEntries]);
+            if (isMounted) {
+                setItems(allItems);
+                setEmployees(allEmployees);
+                setProduction(allProduction);
+                setLoading(false);
+            }
+
+        }, (err) => {
+            handleSnapshotError(err, 'teams');
+            if (isMounted) setLoading(false);
+        });
+
+        return () => {
+            isMounted = false;
+            unsubscribe();
+        };
+    }).catch(err => {
+      console.error("Error setting up initial data:", err);
+      if (isMounted) setLoading(false);
+    });
+
+    return () => { isMounted = false; };
+}, [firestore, createInitialProductionEntries]);
 
 
   const addEmployee = async (employee: Omit<Employee, 'id'>) => {
@@ -249,7 +239,6 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
     if (!firestore) return;
     const ref = doc(firestore, `teams/${teamId}/employees`, id);
     
-    // Also delete subcollections
     const productionQuery = query(collection(ref, 'dailyProduction'));
     const productionSnap = await getDocs(productionQuery);
     const batch = writeBatch(firestore);
