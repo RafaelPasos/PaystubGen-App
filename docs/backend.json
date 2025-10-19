@@ -1,0 +1,206 @@
+{
+  "entities": {
+    "Employee": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "Employee",
+      "type": "object",
+      "description": "Represents an employee with their name, team assignment, and production data.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the Employee entity."
+        },
+        "name": {
+          "type": "string",
+          "description": "The name of the employee."
+        },
+        "teamId": {
+          "type": "string",
+          "description": "Reference to the Team the employee belongs to. (Relationship: Team 1:N Employee)"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "teamId"
+      ]
+    },
+    "ProductionItem": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "ProductionItem",
+      "type": "object",
+      "description": "Represents a production item with its name and pay rate.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the ProductionItem entity."
+        },
+        "name": {
+          "type": "string",
+          "description": "The name of the production item."
+        },
+        "payRate": {
+          "type": "number",
+          "description": "The pay rate for the production item."
+        },
+        "teamId": {
+          "type": "string",
+          "description": "Reference to the Team the ProductionItem belongs to. (Relationship: Team 1:N ProductionItem)"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "payRate",
+        "teamId"
+      ]
+    },
+    "DailyProduction": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "DailyProduction",
+      "type": "object",
+      "description": "Represents daily production numbers for an employee and a specific production item.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the DailyProduction entity."
+        },
+        "employeeId": {
+          "type": "string",
+          "description": "Reference to the Employee. (Relationship: Employee 1:N DailyProduction)"
+        },
+        "productionItemId": {
+          "type": "string",
+          "description": "Reference to the ProductionItem. (Relationship: ProductionItem 1:N DailyProduction)"
+        },
+        "date": {
+          "type": "string",
+          "description": "The date for which the production was recorded.",
+          "format": "date-time"
+        },
+        "quantity": {
+          "type": "number",
+          "description": "The quantity produced on the given date."
+        }
+      },
+      "required": [
+        "id",
+        "employeeId",
+        "productionItemId",
+        "date",
+        "quantity"
+      ]
+    },
+    "Team": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "Team",
+      "type": "object",
+      "description": "Represents a team (e.g., 'Corazones', 'Hojas') to which employees and production items are assigned.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the Team entity."
+        },
+        "name": {
+          "type": "string",
+          "description": "The name of the team (e.g., 'Corazones', 'Hojas')."
+        }
+      },
+      "required": [
+        "id",
+        "name"
+      ]
+    }
+  },
+  "auth": {
+    "providers": [
+      "password",
+      "anonymous"
+    ]
+  },
+  "firestore": {
+    "structure": [
+      {
+        "path": "/teams/{teamId}",
+        "definition": {
+          "entityName": "Team",
+          "schema": {
+            "$ref": "#/backend/entities/Team"
+          },
+          "description": "Stores team documents. This collection is the root for all team-specific data.",
+          "params": [
+            {
+              "name": "teamId",
+              "description": "The unique identifier of the team."
+            }
+          ]
+        }
+      },
+      {
+        "path": "/teams/{teamId}/employees/{employeeId}",
+        "definition": {
+          "entityName": "Employee",
+          "schema": {
+            "$ref": "#/backend/entities/Employee"
+          },
+          "description": "Stores employee documents, nested under each team. Includes the denormalized `teamId` for authorization independence.",
+          "params": [
+            {
+              "name": "teamId",
+              "description": "The unique identifier of the team."
+            },
+            {
+              "name": "employeeId",
+              "description": "The unique identifier of the employee."
+            }
+          ]
+        }
+      },
+      {
+        "path": "/teams/{teamId}/productionItems/{productionItemId}",
+        "definition": {
+          "entityName": "ProductionItem",
+          "schema": {
+            "$ref": "#/backend/entities/ProductionItem"
+          },
+          "description": "Stores production item documents, nested under each team. Includes the denormalized `teamId` for authorization independence.",
+          "params": [
+            {
+              "name": "teamId",
+              "description": "The unique identifier of the team."
+            },
+            {
+              "name": "productionItemId",
+              "description": "The unique identifier of the production item."
+            }
+          ]
+        }
+      },
+      {
+        "path": "/teams/{teamId}/employees/{employeeId}/dailyProduction/{dailyProductionId}",
+        "definition": {
+          "entityName": "DailyProduction",
+          "schema": {
+            "$ref": "#/backend/entities/DailyProduction"
+          },
+          "description": "Stores daily production records for each employee. Includes `employeeId` and `productionItemId` to link to the respective entities.",
+          "params": [
+            {
+              "name": "teamId",
+              "description": "The unique identifier of the team."
+            },
+            {
+              "name": "employeeId",
+              "description": "The unique identifier of the employee."
+            },
+            {
+              "name": "dailyProductionId",
+              "description": "The unique identifier of the daily production record."
+            }
+          ]
+        }
+      }
+    ],
+    "reasoning": "The Firestore structure is designed to provide a secure and scalable backend for the paystub generator application. It prioritizes authorization independence, clarity, and ease of debugging. By denormalizing key team information and segregating data based on team ownership, we ensure secure list operations and simplify security rules.\n\nThe structure incorporates the following key elements:\n\n1.  **Teams Collection:**  Stores team names and serves as the root for team-specific data.\n2.  **Employees Subcollection:**  Each team document contains a subcollection of employees, enabling easy management of employees within each team.\n3.  **Production Items Subcollection:** Each team document contains a subcollection of production items with their respective pay rates.\n4.  **Daily Production Subcollection:** Each employee document contains a subcollection to log daily production. It's nested under each employee to easily aggregate total amounts per pay period.\n\n**Authorization Independence:**\n\n*   Authorization context is denormalized.  Employee and ProductionItem documents inherit the `teamId` from the Team document. This removes the need for `get()` calls in security rules, ensuring that access control can be determined directly from the document being accessed.\n\n**QAPs (Rules are not Filters):**\n\n*   The structure supports secure list operations.  The segregation of data by teams and the use of subcollections allows for easy filtering of employees and production items based on the `teamId` field, preventing unauthorized access to data from other teams."
+  }
+}
