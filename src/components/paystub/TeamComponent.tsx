@@ -34,6 +34,7 @@ export default function TeamComponent({ team, isAuthenticated }: { team: Team, i
 
   return (
     <div>
+      {isAuthenticated && (
       <div className="bg-white p-6 rounded-2xl shadow-lg mb-8">
         <h2 className="text-2xl font-semibold mb-4 border-b pb-3">{team.name}</h2>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -83,6 +84,7 @@ export default function TeamComponent({ team, isAuthenticated }: { team: Team, i
           )}
         </div>
       </div>
+      )}
       <div className="space-y-8">
         {teamEmployees.length > 0 ? teamEmployees.map(employee => (
           <div key={employee.id} className="bg-white p-6 rounded-2xl shadow-lg">
@@ -150,7 +152,7 @@ export default function TeamComponent({ team, isAuthenticated }: { team: Team, i
             </div>
           </div>
         )) : (
-            <div className="text-center py-12 bg-white rounded-2xl shadow-lg"><h3 className="text-xl font-medium text-gray-500">No employees added to this team.</h3></div>
+            <div className="text-center py-12 bg-white rounded-2xl shadow-lg"><h3 className="text-xl font-medium text-gray-500">No hay personal registrado</h3></div>
         )}
       </div>
     </div>

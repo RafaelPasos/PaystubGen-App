@@ -89,10 +89,17 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
     const existingEntry = Object.values(localProduction).find(p => p.employeeId === employeeId && p.productionItemId === itemId && p.date === dateString);
 
     if (existingEntry) {
-        setLocalProduction(prev => ({
-            ...prev,
-            [existingEntry.id]: { ...existingEntry, quantity: finalQuantity }
-        }));
+        if (value === '' || finalQuantity === 0) {
+            setLocalProduction(prev => ({
+                ...prev,
+                [existingEntry.id]: { ...existingEntry, quantity: 0 }
+            }));
+        } else {
+             setLocalProduction(prev => ({
+                ...prev,
+                [existingEntry.id]: { ...existingEntry, quantity: finalQuantity }
+            }));
+        }
     } else {
         const tempId = `new-${employeeId}-${itemId}-${dateString}`;
         const newEntry: ProductionEntry = {
@@ -143,7 +150,7 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
                 const docRef = doc(firestore, `teams/${employee.teamId}/employees/${entry.employeeId}/dailyProduction`, entry.id);
                 batch.update(docRef, { quantity: entry.quantity });
             }
-        } else { // New entry
+        } else if (entry.quantity > 0) { // New entry, only add if quantity is not 0
             const { id, ...newEntry } = entry;
             const docRef = doc(collection(firestore, `teams/${employee.teamId}/employees/${entry.employeeId}/dailyProduction`));
             batch.set(docRef, newEntry);
@@ -193,29 +200,42 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
     weekEnd.setDate(weekEnd.getDate() + 5); 
     const weekDays = eachDayOfInterval({ start: weekStart, end: weekEnd });
 
+    const newEntries: ProductionEntry[] = [];
+    
     for (const item of teamItems) {
       for (const date of weekDays) {
         const dateString = formatISO(date, { representation: 'date' });
         
-        const newEntry: Omit<ProductionEntry, 'id'> = {
+        const newEntryData: Omit<ProductionEntry, 'id'> = {
           employeeId,
           productionItemId: item.id,
           date: dateString,
           quantity: 0
         };
         const docRef = doc(collection(firestore, `teams/${teamId}/employees/${employeeId}/dailyProduction`));
-        batch.set(docRef, newEntry);
+        batch.set(docRef, newEntryData);
+        newEntries.push({ ...newEntryData, id: docRef.id });
       }
     }
     
-    return batch.commit().catch(e => {
+    try {
+        await batch.commit();
+        setProduction(prev => [...prev, ...newEntries]);
+        setLocalProduction(prev => {
+            const updated = { ...prev };
+            newEntries.forEach(entry => {
+                updated[entry.id] = entry;
+            });
+            return updated;
+        });
+    } catch (e) {
         errorEmitter.emit('permission-error', new FirestorePermissionError({
             operation: 'write',
             path: `teams/${teamId}/employees/${employeeId}/dailyProduction`,
             requestResourceData: 'Batched initial production entries'
         }));
         throw e;
-    });
+    }
   }, [firestore]);
 
 
@@ -226,7 +246,6 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
 
     const teamsQuery = query(collection(firestore, 'teams'));
     const teamsUnsub = onSnapshot(teamsQuery, async (teamsSnapshot) => {
-        
         const teamsData = teamsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Team));
         
         if (teamsData.length === 0) {
@@ -253,31 +272,9 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
             } else {
               setTeams(teamsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Team)));
             }
-             setLoading(false);
+            setLoading(false);
         } else {
             setTeams(teamsData);
-            const itemPromises = teamsData.map(team => getDocs(collection(firestore, `teams/${team.id}/productionItems`)));
-            const employeePromises = teamsData.map(team => getDocs(collection(firestore, `teams/${team.id}/employees`)));
-
-            const [itemSnapshots, employeeSnapshots] = await Promise.all([
-                Promise.all(itemPromises),
-                Promise.all(employeePromises)
-            ]);
-
-            const allItems = itemSnapshots.flatMap(snap => snap.docs.map(d => ({id: d.id, ...d.data()} as ProductionItem)));
-            const allEmployees = employeeSnapshots.flatMap(snap => snap.docs.map(d => ({id: d.id, ...d.data()} as Employee)));
-            
-            setItems(allItems);
-            setEmployees(allEmployees);
-
-            if (allEmployees.length > 0) {
-                const productionPromises = allEmployees.map(emp => getDocs(collection(firestore, `teams/${emp.teamId}/employees/${emp.id}/dailyProduction`)));
-                const productionSnapshots = await Promise.all(productionPromises);
-                const allProduction = productionSnapshots.flatMap(snap => snap.docs.map(d => ({id: d.id, ...d.data()} as ProductionEntry)));
-                setProduction(allProduction);
-            } else {
-                setProduction([]);
-            }
             setLoading(false);
         }
     }, (err) => {
@@ -288,7 +285,60 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
     return () => {
       teamsUnsub();
     };
-}, [firestore]);
+  }, [firestore]);
+
+  useEffect(() => {
+    if (!firestore || teams.length === 0) {
+      setEmployees([]);
+      setItems([]);
+      setProduction([]);
+      return;
+    };
+
+    const unsubscribers: Unsubscribe[] = [];
+
+    // Fetch all items once
+    const itemPromises = teams.map(team => getDocs(collection(firestore, `teams/${team.id}/productionItems`)));
+    Promise.all(itemPromises).then(itemSnapshots => {
+        const allItems = itemSnapshots.flatMap(snap => snap.docs.map(d => ({id: d.id, ...d.data()} as ProductionItem)));
+        setItems(allItems);
+    });
+
+    // Listen to employees and their production in real-time
+    teams.forEach(team => {
+        const empQuery = query(collection(firestore, `teams/${team.id}/employees`));
+        const empUnsub = onSnapshot(empQuery, (empSnapshot) => {
+            const teamEmployees = empSnapshot.docs.map(d => ({id: d.id, ...d.data()} as Employee));
+
+            setEmployees(prev => [...prev.filter(e => e.teamId !== team.id), ...teamEmployees]);
+
+            const prodUnsubs: Unsubscribe[] = [];
+
+            if (teamEmployees.length > 0) {
+                teamEmployees.forEach(emp => {
+                    const prodQuery = query(collection(firestore, `teams/${emp.teamId}/employees/${emp.id}/dailyProduction`));
+                    const prodUnsub = onSnapshot(prodQuery, (prodSnapshot) => {
+                        const empProduction = prodSnapshot.docs.map(d => ({id: d.id, ...d.data()} as ProductionEntry));
+                        setProduction(prev => [...prev.filter(p => p.employeeId !== emp.id), ...empProduction]);
+                    }, err => handleSnapshotError(err, `teams/${emp.teamId}/employees/${emp.id}/dailyProduction`));
+                    prodUnsubs.push(prodUnsub);
+                });
+            } else {
+                 setProduction(prev => prev.filter(p => {
+                    const emp = employees.find(e => e.id === p.employeeId);
+                    return emp && emp.teamId !== team.id;
+                 }));
+            }
+             unsubscribers.push(...prodUnsubs);
+
+        }, err => handleSnapshotError(err, `teams/${team.id}/employees`));
+
+        unsubscribers.push(empUnsub);
+    });
+
+    return () => unsubscribers.forEach(unsub => unsub());
+
+  }, [firestore, teams]);
 
 
   const addEmployee = async (employee: Omit<Employee, 'id'>) => {
@@ -304,30 +354,52 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
         }));
         throw e;
       });
+
+      // Manually update local state before creating production entries
+      const newEmployee = { id: newDocRef.id, ...employee };
+      setEmployees(prev => [...prev, newEmployee]);
+
       await createInitialProductionEntries(newDocRef.id, employee.teamId, teamItems);
     } catch (e) {
       if (!(e instanceof FirestorePermissionError)) {
           console.error("Error adding employee:", e);
+           // Rollback local state update on error
+          setEmployees(prev => prev.filter(emp => emp.name !== employee.name));
       }
     }
   };
 
   const deleteEmployee = async (id: string, teamId: string) => {
     if (!firestore) return;
+
+    // Manually remove from local state first for instant UI update
+    const employeeToDelete = employees.find(e => e.id === id);
+    if (!employeeToDelete) return;
+
+    setEmployees(prev => prev.filter(e => e.id !== id));
+    setProduction(prev => prev.filter(p => p.employeeId !== id));
+
     const ref = doc(firestore, `teams/${teamId}/employees`, id);
     
-    const productionQuery = query(collection(ref, 'dailyProduction'));
-    const productionSnap = await getDocs(productionQuery);
-    const batch = writeBatch(firestore);
-    productionSnap.forEach(doc => batch.delete(doc.ref));
-    await batch.commit();
+    try {
+        const productionQuery = query(collection(ref, 'dailyProduction'));
+        const productionSnap = await getDocs(productionQuery);
+        const batch = writeBatch(firestore);
+        productionSnap.forEach(doc => batch.delete(doc.ref));
+        await batch.commit();
 
-    deleteDoc(ref).catch(e => {
-      errorEmitter.emit('permission-error', new FirestorePermissionError({
-        path: ref.path,
-        operation: 'delete',
-      }));
-    });
+        await deleteDoc(ref);
+    } catch(e) {
+        console.error("Error deleting employee and their production:", e);
+        // If deletion fails, rollback the local state change
+        setEmployees(prev => [...prev, employeeToDelete]);
+        // Re-fetching production might be needed for a full rollback, but can be complex.
+        // For now, we just add the employee back.
+         errorEmitter.emit('permission-error', new FirestorePermissionError({
+            path: ref.path,
+            operation: 'delete',
+         }));
+    }
   };
 
   const value = {
