@@ -10,6 +10,7 @@ import { useData } from '@/context/DataProvider';
 import { jsPDF } from "jspdf";
 import 'jspdf-autotable';
 import { useToast } from '@/hooks/use-toast';
+import { startOfWeek, formatISO } from 'date-fns';
 
 // Extend jsPDF with autoTable - this is a workaround for module augmentation in a single file
 declare module 'jspdf' {
@@ -75,10 +76,15 @@ export default function PaystubApp() {
         const employeeProduction = production.filter(p => p.employeeId === employee.id);
 
         let totalWeeklyPay = 0;
+        const weekStart = startOfWeek(new Date(), { weekStartsOn: 1 });
+
         const tableBody = teamItems.map(item => {
             const itemProductionEntries = employeeProduction.filter(p => p.productionItemId === item.id);
             const productionByDay = days.map((_, dayIndex) => {
-              const entry = itemProductionEntries.find(p => new Date(p.date).getDay() === (dayIndex + 1) % 7); // Adjust for week start
+              const date = new Date(weekStart);
+              date.setDate(date.getDate() + dayIndex);
+              const dateString = formatISO(date, { representation: 'date' });
+              const entry = itemProductionEntries.find(p => p.date === dateString);
               return entry ? entry.quantity : 0;
             });
 

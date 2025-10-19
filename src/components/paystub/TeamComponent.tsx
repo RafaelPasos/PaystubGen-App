@@ -7,9 +7,10 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { PlusCircle, Trash2 } from 'lucide-react';
 import type { Team, Employee, ProductionItem, ProductionEntry } from '@/lib/types';
+import { startOfWeek, formatISO } from 'date-fns';
 
 export default function TeamComponent({ team }: { team: Team }) {
-  const { employees, items, production, addEmployee, deleteEmployee, updateItem, updateProductionEntry } = useData();
+  const { employees, items, production, addEmployee, deleteEmployee, updateItem, updateProductionEntry, addProductionEntry } = useData();
   const [newEmployeeName, setNewEmployeeName] = useState('');
 
   const teamEmployees = employees.filter(e => e.teamId === team.id);
@@ -27,17 +28,20 @@ export default function TeamComponent({ team }: { team: Team }) {
   };
   
   const handleProductionChange = (employeeId: string, itemId: string, dayIndex: number, value: string) => {
-    const quantity = parseInt(value, 10) || 0;
-    const date = new Date(); // This should be improved to handle weeks
-    date.setDate(date.getDate() - date.getDay() + dayIndex + 1);
+    const quantity = parseInt(value, 10);
+    if(isNaN(quantity)) return;
+
+    const weekStart = startOfWeek(new Date(), { weekStartsOn: 1 }); // Monday
+    const date = new Date(weekStart);
+    date.setDate(date.getDate() + dayIndex);
+    const dateString = formatISO(date, { representation: 'date' });
     
-    const existingEntry = production.find(p => p.employeeId === employeeId && p.productionItemId === itemId && new Date(p.date).toDateString() === date.toDateString());
+    const existingEntry = production.find(p => p.employeeId === employeeId && p.productionItemId === itemId && p.date === dateString);
 
     if(existingEntry){
         updateProductionEntry(existingEntry.id, team.id, employeeId, { quantity });
     } else {
-        // This is simplified, we'd need a more robust way to create new entries
-        // For now, we only update existing entries for the demo
+        addProductionEntry({ employeeId, productionItemId: itemId, date: dateString, quantity});
     }
   };
 
@@ -57,6 +61,7 @@ export default function TeamComponent({ team }: { team: Team }) {
                 onChange={(e) => setNewEmployeeName(e.target.value)}
                 placeholder={`Agregar al grupo de ${team.name.toLowerCase()}`}
                 className="flex-grow w-full p-3"
+                onKeyDown={(e) => e.key === 'Enter' && handleAddEmployee()}
               />
               <Button onClick={handleAddEmployee} className="bg-blue-600 text-white font-semibold px-6 py-3 h-auto rounded-lg shadow-md hover:bg-blue-700">
                 Agregar
@@ -77,8 +82,8 @@ export default function TeamComponent({ team }: { team: Team }) {
                       type="number"
                       min="0"
                       step="0.01"
-                      value={item.payRate}
-                      onInput={(e) => handleRateChange(item.id, e.currentTarget.value)}
+                      defaultValue={item.payRate}
+                      onBlur={(e) => handleRateChange(item.id, e.currentTarget.value)}
                       className="w-full pl-7 p-3"
                     />
                   </div>
@@ -123,16 +128,15 @@ export default function TeamComponent({ team }: { team: Team }) {
                   </thead>
                   <tbody>
                     {teamItems.map(item => {
-                      const employeeProduction = production.filter(p => p.employeeId === employee.id && p.productionItemId === item.id);
                       return (
                         <tr key={item.id} className="border-b">
                           <td className="font-semibold py-2 px-3 text-gray-700">{item.name}</td>
                           {days.map((day, dayIndex) => {
-                             const entry = employeeProduction.find(p => {
-                                // Simple matching by day of week for demo. This should be more robust.
-                                const entryDate = new Date(p.date);
-                                return entryDate.getDay() === (dayIndex + 1) % 7;
-                             });
+                             const weekStart = startOfWeek(new Date(), { weekStartsOn: 1 });
+                             const date = new Date(weekStart);
+                             date.setDate(date.getDate() + dayIndex);
+                             const dateString = formatISO(date, { representation: 'date' });
+                             const entry = production.find(p => p.employeeId === employee.id && p.productionItemId === item.id && p.date === dateString);
                              return(
                                 <td key={dayIndex} className="p-1">
                                     <Input
