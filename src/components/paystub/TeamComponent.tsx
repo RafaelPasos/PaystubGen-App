@@ -1,20 +1,44 @@
 'use client';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useData } from '@/context/DataProvider';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
-import { PlusCircle, Trash2 } from 'lucide-react';
 import type { Team, Employee, ProductionItem, ProductionEntry } from '@/lib/types';
 import { startOfWeek, formatISO } from 'date-fns';
+import { useToast } from '@/hooks/use-toast';
 
 export default function TeamComponent({ team }: { team: Team }) {
-  const { employees, items, production, addEmployee, deleteEmployee, updateItem, updateProductionEntry, addProductionEntry } = useData();
+  const { employees, items, production, addEmployee, deleteEmployee, updateItem, updateProductionEntry, addProductionEntry, batchUpdate } = useData();
   const [newEmployeeName, setNewEmployeeName] = useState('');
+  
+  const [localRates, setLocalRates] = useState<Record<string, number>>({});
+  const [localProduction, setLocalProduction] = useState<Record<string, ProductionEntry>>({});
+  const [hasChanges, setHasChanges] = useState(false);
+
+  const { toast } = useToast();
 
   const teamEmployees = employees.filter(e => e.teamId === team.id);
   const teamItems = items.filter(i => i.teamId === team.id);
+
+  useEffect(() => {
+    // Initialize local rates
+    const initialRates: Record<string, number> = {};
+    teamItems.forEach(item => {
+      initialRates[item.id] = item.payRate;
+    });
+    setLocalRates(initialRates);
+
+    // Initialize local production
+    const initialProduction: Record<string, ProductionEntry> = {};
+    production.forEach(p => {
+        initialProduction[p.id] = { ...p };
+    });
+    setLocalProduction(initialProduction);
+
+    setHasChanges(false);
+  }, [items, production, team.id]);
+
 
   const handleAddEmployee = async () => {
     if (newEmployeeName.trim()) {
@@ -24,7 +48,8 @@ export default function TeamComponent({ team }: { team: Team }) {
   };
 
   const handleRateChange = (itemId: string, newRate: string) => {
-    updateItem(itemId, team.id, { payRate: parseFloat(newRate) || 0 });
+    setLocalRates(prev => ({ ...prev, [itemId]: parseFloat(newRate) || 0 }));
+    setHasChanges(true);
   };
   
   const handleProductionChange = (employeeId: string, itemId: string, dayIndex: number, value: string) => {
@@ -36,12 +61,56 @@ export default function TeamComponent({ team }: { team: Team }) {
     date.setDate(date.getDate() + dayIndex);
     const dateString = formatISO(date, { representation: 'date' });
     
-    const existingEntry = production.find(p => p.employeeId === employeeId && p.productionItemId === itemId && p.date === dateString);
+    const existingEntry = Object.values(localProduction).find(p => p.employeeId === employeeId && p.productionItemId === itemId && p.date === dateString);
 
-    if(existingEntry){
-        updateProductionEntry(existingEntry.id, team.id, employeeId, { quantity });
+    if (existingEntry) {
+        setLocalProduction(prev => ({
+            ...prev,
+            [existingEntry.id]: { ...existingEntry, quantity }
+        }));
     } else {
-        addProductionEntry({ employeeId, productionItemId: itemId, date: dateString, quantity});
+        // This case should ideally not happen if initial entries are created, but as a fallback:
+        const tempId = `new-${employeeId}-${itemId}-${dateString}`;
+        const newEntry: ProductionEntry = {
+            id: tempId,
+            employeeId,
+            productionItemId: itemId,
+            date: dateString,
+            quantity
+        };
+        setLocalProduction(prev => ({ ...prev, [tempId]: newEntry }));
+    }
+    setHasChanges(true);
+  };
+
+  const handleSaveChanges = async () => {
+    const rateUpdates: { id: string, data: Partial<ProductionItem> }[] = [];
+    Object.entries(localRates).forEach(([id, payRate]) => {
+      const originalItem = teamItems.find(i => i.id === id);
+      if (originalItem && originalItem.payRate !== payRate) {
+        rateUpdates.push({ id, data: { payRate } });
+      }
+    });
+
+    const productionUpdates: { id: string, employeeId: string, data: Partial<ProductionEntry>}[] = [];
+    const productionAdditions: Omit<ProductionEntry, 'id'>[] = [];
+
+    Object.values(localProduction).forEach(entry => {
+        const originalEntry = production.find(p => p.id === entry.id);
+        if (originalEntry && originalEntry.quantity !== entry.quantity) {
+            productionUpdates.push({ id: entry.id, employeeId: entry.employeeId, data: { quantity: entry.quantity } });
+        } else if (!originalEntry) {
+            const { id, ...newEntry } = entry;
+            productionAdditions.push(newEntry);
+        }
+    });
+
+    try {
+        await batchUpdate(team.id, rateUpdates, productionUpdates, productionAdditions);
+        toast({ title: "Success", description: "Changes saved successfully." });
+        setHasChanges(false);
+    } catch(e) {
+        toast({ title: "Error", description: "Could not save changes.", variant: "destructive" });
     }
   };
 
@@ -82,8 +151,8 @@ export default function TeamComponent({ team }: { team: Team }) {
                       type="number"
                       min="0"
                       step="0.01"
-                      defaultValue={item.payRate}
-                      onBlur={(e) => handleRateChange(item.id, e.currentTarget.value)}
+                      value={localRates[item.id] ?? ''}
+                      onChange={(e) => handleRateChange(item.id, e.currentTarget.value)}
                       className="w-full pl-7 p-3"
                     />
                   </div>
@@ -92,6 +161,13 @@ export default function TeamComponent({ team }: { team: Team }) {
             </div>
           </div>
         </div>
+         {hasChanges && (
+            <div className="mt-6 text-right">
+                <Button onClick={handleSaveChanges} className="bg-green-600 text-white font-semibold px-6 py-3 h-auto rounded-lg shadow-md hover:bg-green-700">
+                    Save Changes
+                </Button>
+            </div>
+        )}
       </div>
       <div className="space-y-8">
         {teamEmployees.length > 0 ? teamEmployees.map(employee => (
@@ -136,14 +212,14 @@ export default function TeamComponent({ team }: { team: Team }) {
                              const date = new Date(weekStart);
                              date.setDate(date.getDate() + dayIndex);
                              const dateString = formatISO(date, { representation: 'date' });
-                             const entry = production.find(p => p.employeeId === employee.id && p.productionItemId === item.id && p.date === dateString);
+                             const entry = Object.values(localProduction).find(p => p.employeeId === employee.id && p.productionItemId === item.id && p.date === dateString);
                              return(
                                 <td key={dayIndex} className="p-1">
                                     <Input
                                         type="number"
                                         min="0"
-                                        defaultValue={entry?.quantity || 0}
-                                        onBlur={(e) => handleProductionChange(employee.id, item.id, dayIndex, e.currentTarget.value)}
+                                        value={entry?.quantity ?? 0}
+                                        onChange={(e) => handleProductionChange(employee.id, item.id, dayIndex, e.currentTarget.value)}
                                         className="w-20 p-2"
                                     />
                                 </td>

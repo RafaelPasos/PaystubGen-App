@@ -1,13 +1,12 @@
 'use client';
 
 import type { ReactNode } from 'react';
-import { createContext, useContext, useEffect, useState } from 'react';
-import { collection, onSnapshot, addDoc, updateDoc, deleteDoc, doc, DocumentData, query, writeBatch, getDocs, where, CollectionReference, Query, FirestoreError } from 'firebase/firestore';
+import { createContext, useContext, useEffect, useState, useCallback } from 'react';
+import { collection, onSnapshot, doc, DocumentData, query, writeBatch, getDocs, FirestoreError, CollectionReference, Query, getDoc } from 'firebase/firestore';
 import { useFirestore } from '@/firebase';
 import type { Employee, ProductionItem, ProductionEntry, Team } from '@/lib/types';
-import { useToast } from "@/hooks/use-toast"
-import { addDocumentNonBlocking, deleteDocumentNonBlocking, updateDocumentNonBlocking, setDocumentNonBlocking } from '@/firebase/non-blocking-updates';
-import { startOfWeek, formatISO } from 'date-fns';
+import { addDocumentNonBlocking, deleteDocumentNonBlocking, updateDocumentNonBlocking } from '@/firebase/non-blocking-updates';
+import { startOfWeek, formatISO, eachDayOfInterval } from 'date-fns';
 import { errorEmitter } from '@/firebase/error-emitter';
 import { FirestorePermissionError } from '@/firebase/errors';
 import { InternalQuery } from '@/firebase/firestore/use-collection';
@@ -27,6 +26,7 @@ interface DataContextType {
   addProductionEntry: (entry: Omit<ProductionEntry, 'id'>) => Promise<void>;
   updateProductionEntry: (id: string, teamId:string, employeeId: string, entry: Partial<ProductionEntry>) => Promise<void>;
   deleteProductionEntry: (id: string) => Promise<void>;
+  batchUpdate: (teamId: string, rateUpdates: { id: string, data: Partial<ProductionItem> }[], productionUpdates: { id: string, employeeId: string, data: Partial<ProductionEntry> }[], productionAdditions: Omit<ProductionEntry, 'id'>[]) => Promise<void>;
 }
 
 const DataContext = createContext<DataContextType | undefined>(undefined);
@@ -70,17 +70,22 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
   const [items, setItems] = useState<ProductionItem[]>([]);
   const [production, setProduction] = useState<ProductionEntry[]>([]);
   const [loading, setLoading] = useState(true);
-  const { toast } = useToast();
 
-  const createInitialProductionEntries = async (employeeId: string, teamId: string, teamItems: ProductionItem[]) => {
+  const createInitialProductionEntries = useCallback(async (employeeId: string, teamId: string) => {
     if (!firestore) return;
+    const teamItems = items.filter(i => i.teamId === teamId);
+    if (teamItems.length === 0) {
+      console.log("No items found for team, skipping initial production entries.");
+      return;
+    }
     const batch = writeBatch(firestore);
-    const weekStart = startOfWeek(new Date(), { weekStartsOn: 1 }); // Monday
+    const weekStart = startOfWeek(new Date(), { weekStartsOn: 1 });
+    const weekEnd = new Date(weekStart);
+    weekEnd.setDate(weekEnd.getDate() + 5);
+    const weekDays = eachDayOfInterval({ start: weekStart, end: weekEnd });
 
     for (const item of teamItems) {
-        for (let i = 0; i < 6; i++) {
-            const date = new Date(weekStart);
-            date.setDate(date.getDate() + i);
+        for (const date of weekDays) {
             const dateString = formatISO(date, { representation: 'date' });
             
             const newEntry: Omit<ProductionEntry, 'id'> = {
@@ -93,6 +98,7 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
             batch.set(docRef, newEntry);
         }
     }
+    
     batch.commit().catch(e => {
         errorEmitter.emit('permission-error', new FirestorePermissionError({
             operation: 'write',
@@ -100,31 +106,28 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
             requestResourceData: 'Batched initial production entries'
         }));
     });
-  };
+  }, [firestore, items]);
 
   useEffect(() => {
     if (!firestore) return;
 
     let isMounted = true;
     let unsubscribes: (() => void)[] = [];
+    setLoading(true);
 
     const setupInitialData = async () => {
       const teamsRef = collection(firestore, 'teams');
       try {
-        const teamsSnap = await getDocs(teamsRef);
+        const teamsQuery = query(teamsRef);
+        const teamsSnap = await getDocs(teamsQuery);
+        
         if (teamsSnap.empty) {
           console.log("No teams found, creating initial data...");
           const batch = writeBatch(firestore);
-          const teamRefs: {id: string, name: string}[] = [];
-
-          for (const team of defaultTeams) {
+          for (const teamData of defaultTeams) {
               const teamRef = doc(teamsRef);
-              batch.set(teamRef, team);
-              teamRefs.push({id: teamRef.id, name: team.name});
-          }
-
-          for (const teamRef of teamRefs) {
-              const teamItems = defaultItems[teamRef.name] || [];
+              batch.set(teamRef, teamData);
+              const teamItems = defaultItems[teamData.name] || [];
               const itemsRef = collection(firestore, `teams/${teamRef.id}/productionItems`);
               teamItems.forEach(item => {
                   const newItemRef = doc(itemsRef);
@@ -146,79 +149,71 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
         await setupInitialData();
         if (!isMounted) return;
 
-        setLoading(true);
         const teamsQuery = query(collection(firestore, 'teams'));
         
         const teamsUnsub = onSnapshot(teamsQuery, (teamsSnapshot) => {
+            if (!isMounted) return;
             const teamsData = teamsSnapshot.docs.map(d => ({ ...d.data(), id: d.id } as Team));
             setTeams(teamsData);
 
-            // Clean up old listeners
             unsubscribes.forEach(unsub => unsub());
             unsubscribes = [];
 
-            let allEmployees: Employee[] = [];
-            let allItems: ProductionItem[] = [];
-            let allProduction: ProductionEntry[] = [];
-            
             if (teamsData.length === 0) {
-              setEmployees([]);
               setItems([]);
+              setEmployees([]);
               setProduction([]);
               setLoading(false);
               return;
             }
 
-            let teamsProcessed = 0;
+            let loadedCount = 0;
+            const totalToLoad = teamsData.length * 2; // items and employees for each team
+
+            const allItems: ProductionItem[] = [];
+            const allEmployees: Employee[] = [];
+            const allProduction: ProductionEntry[] = [];
             
             teamsData.forEach(team => {
+                // Listen to Items
                 const itemsQuery = query(collection(firestore, `teams/${team.id}/productionItems`));
                 const itemsUnsub = onSnapshot(itemsQuery, itemsSnapshot => {
+                    if (!isMounted) return;
                     const teamItems = itemsSnapshot.docs.map(d => ({ ...d.data(), id: d.id } as ProductionItem));
-                    // Filter out old items for this team and add new ones
-                    allItems = [...allItems.filter(i => i.teamId !== team.id), ...teamItems];
-                    setItems(allItems);
+                    allItems.push(...teamItems);
+                    setItems(prev => [...prev.filter(i => i.teamId !== team.id), ...teamItems]);
+                    if (++loadedCount >= totalToLoad) setLoading(false);
                 }, error => handleSnapshotError(error, itemsQuery));
                 unsubscribes.push(itemsUnsub);
 
+                // Listen to Employees
                 const employeesQuery = query(collection(firestore, `teams/${team.id}/employees`));
                 const employeesUnsub = onSnapshot(employeesQuery, employeesSnapshot => {
+                    if (!isMounted) return;
                     const teamEmployees = employeesSnapshot.docs.map(d => ({ ...d.data(), id: d.id } as Employee));
-                    // Filter out old employees for this team and add new ones
-                    allEmployees = [...allEmployees.filter(e => e.teamId !== team.id), ...teamEmployees];
-                    setEmployees(allEmployees);
-
+                    allEmployees.push(...teamEmployees);
+                    setEmployees(prev => [...prev.filter(e => e.teamId !== team.id), ...teamEmployees]);
+                    
                     teamEmployees.forEach(employee => {
                         const productionQuery = query(collection(firestore, `teams/${team.id}/employees/${employee.id}/dailyProduction`));
                         const productionUnsub = onSnapshot(productionQuery, productionSnapshot => {
+                            if (!isMounted) return;
                             const empProduction = productionSnapshot.docs.map(d => ({ ...d.data(), id: d.id } as ProductionEntry));
-                             // Filter out old production for this employee and add new ones
-                            allProduction = [...allProduction.filter(p => p.employeeId !== employee.id), ...empProduction];
-                            setProduction(allProduction);
+                            allProduction.push(...empProduction);
+                            setProduction(prev => [...prev.filter(p => p.employeeId !== employee.id), ...empProduction]);
                         }, error => handleSnapshotError(error, productionQuery));
                         unsubscribes.push(productionUnsub);
                     });
-
-                    // Remove production data for employees that no longer exist
-                    const currentTeamEmpIds = new Set(teamEmployees.map(e => e.id));
-                    allProduction = allProduction.filter(p => {
-                      const emp = allEmployees.find(e => e.id === p.employeeId);
-                      // Keep if employee exists and is in the current team being processed
-                      return emp && emp.teamId === team.id ? currentTeamEmpIds.has(p.employeeId) : true;
-                    });
-                    setProduction(allProduction);
-
+                    
+                    if (++loadedCount >= totalToLoad) setLoading(false);
                 }, error => handleSnapshotError(error, employeesQuery));
                 unsubscribes.push(employeesUnsub);
-
-                teamsProcessed++;
-                if (teamsProcessed === teamsData.length) {
-                    setLoading(false);
-                }
             });
         }, (error) => {
-            handleSnapshotError(error, teamsQuery);
-            setLoading(false);
+            if (isMounted) {
+                handleSnapshotError(error, teamsQuery);
+                setLoading(false);
+            }
         });
 
         unsubscribes.push(teamsUnsub);
@@ -230,19 +225,21 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
         isMounted = false;
         unsubscribes.forEach(unsub => unsub());
     };
-}, [firestore]);
+  }, [firestore]);
   
 
   const addEmployee = async (employee: Omit<Employee, 'id'>) => {
     if (!firestore) return;
     const ref = collection(firestore, `teams/${employee.teamId}/employees`);
-    addDocumentNonBlocking(ref, employee)
-      .then(newDocRef => {
+    try {
+        const newDocRef = await addDocumentNonBlocking(ref, employee);
         if (newDocRef) {
-          const teamItems = items.filter(item => item.teamId === employee.teamId);
-          createInitialProductionEntries(newDocRef.id, employee.teamId, teamItems);
+          // After employee is added, create their production entries for the week
+          await createInitialProductionEntries(newDocRef.id, employee.teamId);
         }
-      });
+    } catch(e) {
+      // Error is handled by non-blocking update
+    }
   };
 
   const updateEmployee = async (id: string, teamId: string, employee: Partial<Employee>) => {
@@ -287,6 +284,37 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
     // For simplicity, this is left out in this migration. A better data model might be needed.
   };
 
+  const batchUpdate = async (teamId: string, rateUpdates: { id: string, data: Partial<ProductionItem> }[], productionUpdates: { id: string, employeeId: string, data: Partial<ProductionEntry> }[], productionAdditions: Omit<ProductionEntry, 'id'>[]) => {
+    if (!firestore) return;
+    const batch = writeBatch(firestore);
+
+    rateUpdates.forEach(update => {
+        const docRef = doc(firestore, `teams/${teamId}/productionItems`, update.id);
+        batch.update(docRef, update.data);
+    });
+
+    productionUpdates.forEach(update => {
+        const docRef = doc(firestore, `teams/${teamId}/employees/${update.employeeId}/dailyProduction`, update.id);
+        batch.update(docRef, update.data);
+    });
+
+    productionAdditions.forEach(addition => {
+        const docRef = doc(collection(firestore, `teams/${teamId}/employees/${addition.employeeId}/dailyProduction`));
+        batch.set(docRef, addition);
+    });
+
+    try {
+        await batch.commit();
+    } catch(e) {
+        errorEmitter.emit('permission-error', new FirestorePermissionError({
+            operation: 'write',
+            path: `teams/${teamId} batch update`,
+            requestResourceData: 'Batch update of rates and production'
+        }));
+        throw e;
+    }
+  };
+
   const value = {
     teams,
     employees,
@@ -302,6 +330,7 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
     addProductionEntry,
     updateProductionEntry,
     deleteProductionEntry,
+    batchUpdate
   };
 
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>;
