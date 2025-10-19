@@ -2,12 +2,15 @@
 
 import type { ReactNode } from 'react';
 import { createContext, useContext, useEffect, useState } from 'react';
-import { collection, onSnapshot, addDoc, updateDoc, deleteDoc, doc, DocumentData, query, writeBatch, getDocs, where } from 'firebase/firestore';
+import { collection, onSnapshot, addDoc, updateDoc, deleteDoc, doc, DocumentData, query, writeBatch, getDocs, where, CollectionReference, Query, FirestoreError } from 'firebase/firestore';
 import { useFirestore } from '@/firebase';
 import type { Employee, ProductionItem, ProductionEntry, Team } from '@/lib/types';
 import { useToast } from "@/hooks/use-toast"
 import { addDocumentNonBlocking, deleteDocumentNonBlocking, updateDocumentNonBlocking } from '@/firebase/non-blocking-updates';
 import { startOfWeek, formatISO } from 'date-fns';
+import { errorEmitter } from '@/firebase/error-emitter';
+import { FirestorePermissionError } from '@/firebase/errors';
+import { InternalQuery } from '@/firebase/firestore/use-collection';
 
 interface DataContextType {
   teams: Team[];
@@ -46,6 +49,19 @@ const defaultItems: Record<string, Omit<ProductionItem, 'id' | 'teamId'>[]> = {
     { name: 'Tira', payRate: 6 },
   ]
 };
+
+const handleSnapshotError = (error: FirestoreError, ref: CollectionReference | Query) => {
+    const path = ref.type === 'collection'
+        ? (ref as CollectionReference).path
+        : (ref as unknown as InternalQuery)._query.path.canonicalString();
+
+    const contextualError = new FirestorePermissionError({
+        operation: 'list',
+        path: path,
+    });
+    errorEmitter.emit('permission-error', contextualError);
+};
+
 
 export const DataProvider = ({ children }: { children: ReactNode }) => {
   const firestore = useFirestore();
@@ -91,11 +107,16 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
         
         if (teamsSnap.empty) {
             const batch = writeBatch(firestore);
+            const teamRefs: {id: string, name: string}[] = [];
+
             for (const team of defaultTeams) {
                 const teamRef = doc(teamsRef);
                 batch.set(teamRef, team);
+                teamRefs.push({id: teamRef.id, name: team.name});
+            }
 
-                const teamItems = defaultItems[team.name] || [];
+            for (const teamRef of teamRefs) {
+                const teamItems = defaultItems[teamRef.name] || [];
                 const itemsRef = collection(firestore, `teams/${teamRef.id}/productionItems`);
                 teamItems.forEach(item => {
                     const newItemRef = doc(itemsRef);
@@ -106,13 +127,15 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
         }
     };
 
-
-    const unsubTeams = onSnapshot(collection(firestore, 'teams'), async (snapshot) => {
+    const teamsRef = collection(firestore, 'teams');
+    const unsubTeams = onSnapshot(teamsRef, async (snapshot) => {
       const teamsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Team));
       setTeams(teamsData);
       
       if (teamsData.length > 0) {
-        const employeeUnsubs = teamsData.flatMap(team => {
+        const allUnsubs: (()=>void)[] = [];
+
+        teamsData.forEach(team => {
             const employeesRef = collection(firestore, `teams/${team.id}/employees`);
             const itemsRef = collection(firestore, `teams/${team.id}/productionItems`);
             
@@ -122,38 +145,37 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
                 
                 const prodUnsubs = teamEmployees.map(emp => {
                     const prodRef = collection(firestore, `teams/${team.id}/employees/${emp.id}/dailyProduction`);
-                    return onSnapshot(prodRef, prodSnap => {
+                    const unsubProd = onSnapshot(prodRef, prodSnap => {
                         const empProduction = prodSnap.docs.map(p => ({ id: p.id, ...p.data() } as ProductionEntry));
                         setProduction(prev => [...prev.filter(p => p.employeeId !== emp.id), ...empProduction]);
-                    });
+                    }, (error) => handleSnapshotError(error, prodRef));
+                    allUnsubs.push(unsubProd);
                 });
-                return () => prodUnsubs.forEach(unsub => unsub());
-            });
+
+            }, (error) => handleSnapshotError(error, employeesRef));
+            allUnsubs.push(unsubEmployees);
 
             const unsubItems = onSnapshot(itemsRef, itemSnap => {
                 const teamItems = itemSnap.docs.map(d => ({ id: d.id, ...d.data() } as ProductionItem));
                 setItems(prev => [...prev.filter(i => i.teamId !== team.id), ...teamItems]);
-            });
-
-            return [unsubEmployees, unsubItems];
+            }, (error) => handleSnapshotError(error, itemsRef));
+            allUnsubs.push(unsubItems);
         });
 
         setLoading(false);
-        return () => employeeUnsubs.forEach(unsub => unsub());
+        return () => allUnsubs.forEach(unsub => unsub());
       } else {
          await setupInitialData();
-         setLoading(false);
       }
     }, (error) => {
-      console.error("Error fetching teams:", error);
-      toast({ title: "Error", description: "Could not fetch teams.", variant: "destructive" });
+      handleSnapshotError(error, teamsRef);
       setLoading(false);
     });
 
     return () => {
-        unsubTeams();
+        if (unsubTeams) unsubTeams();
     };
-  }, [firestore, toast]);
+  }, [firestore]);
   
 
   const addEmployee = async (employee: Omit<Employee, 'id'>) => {
@@ -163,8 +185,14 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
       const teamItems = items.filter(item => item.teamId === employee.teamId);
       await createInitialProductionEntries(newDocRef.id, employee.teamId, teamItems);
     } catch(e) {
-      console.error(e);
-      toast({ title: "Error", description: "Could not add employee", variant: "destructive" });
+      if (e instanceof FirestoreError) {
+        const error = new FirestorePermissionError({
+          path: `teams/${employee.teamId}/employees`,
+          operation: 'create',
+          requestResourceData: employee,
+        });
+        errorEmitter.emit('permission-error', error);
+      }
     }
   };
 

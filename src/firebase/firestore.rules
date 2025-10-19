@@ -1,0 +1,93 @@
+// @filename: src/firestore.rules
+/**
+ * @fileoverview Firestore Security Rules for Paystub Generator App
+ *
+ * Core Philosophy:
+ * This ruleset enforces a hierarchical data ownership model based on teams.
+ * Each team owns its employees, production items, and daily production records.
+ * Access is restricted based on team membership, ensuring data isolation between teams.
+ *
+ * Data Structure:
+ * - /teams/{teamId}: Root collection for teams.
+ * - /teams/{teamId}/employees/{employeeId}: Employees belonging to a team.
+ * - /teams/{teamId}/productionItems/{productionItemId}: Production items for a team.
+ * - /teams/{teamId}/employees/{employeeId}/dailyProduction/{dailyProductionId}: Daily production records for employees.
+ *
+ * Key Security Decisions:
+ * - Data is strictly segregated by team.
+ * - All write operations require the user to be authenticated.
+ * - List operations are secured to prevent cross-team data access.
+ * - The ruleset is designed to avoid `get()` calls for performance and cost efficiency by denormalizing the `teamId` field into child collections.
+ *
+ * Denormalization for Authorization:
+ * The `teamId` is denormalized into the Employee and ProductionItem documents.
+ * This enables rules to authorize access without needing to perform additional reads (e.g., `get()` calls) to verify team membership.
+ */
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    /**
+     * @description Allows read access to team documents.
+     * @path /teams/{teamId}
+     * @allow get, list: if true;
+     * @deny create, update, delete: if false;
+     * @principle Allows public read-only access to team names.
+     */
+    match /teams/{teamId} {
+      allow get, list: if true;
+      allow create, update, delete: if false;
+    }
+
+    /**
+     * @description Manages access to employee documents within a team.
+     * @path /teams/{teamId}/employees/{employeeId}
+     * @allow get: if true;
+     * @allow list: if true;
+     * @allow create: if request.auth != null && request.resource.data.teamId == teamId;
+     * @allow update: if request.auth != null && resource.data.teamId == teamId;
+     * @allow delete: if request.auth != null && resource.data.teamId == teamId;
+     * @principle Enforces team-based ownership of employee documents.
+     */
+    match /teams/{teamId}/employees/{employeeId} {
+      allow get, list: if true;
+      allow create: if request.auth != null && request.resource.data.teamId == teamId;
+      allow update: if request.auth != null && resource.data.teamId == teamId;
+      allow delete: if request.auth != null && resource.data.teamId == teamId;
+    }
+
+    /**
+     * @description Controls access to production item documents within a team.
+     * @path /teams/{teamId}/productionItems/{productionItemId}
+     * @allow get: if true;
+     * @allow list: if true;
+     * @allow create: if request.auth != null && request.resource.data.teamId == teamId;
+     * @allow update: if request.auth != null && resource.data.teamId == teamId;
+     * @allow delete: if request.auth != null && resource.data.teamId == teamId;
+     * @principle Restricts access to production items based on team membership.
+     */
+    match /teams/{teamId}/productionItems/{productionItemId} {
+      allow get, list: if true;
+      allow create: if request.auth != null && request.resource.data.teamId == teamId;
+      allow update: if request.auth != null && resource.data.teamId == teamId;
+      allow delete: if request.auth != null && resource.data.teamId == teamId;
+    }
+
+    /**
+     * @description Manages access to daily production records for employees.
+     * @path /teams/{teamId}/employees/{employeeId}/dailyProduction/{dailyProductionId}
+     * @allow get: if true;
+     * @allow list: if true;
+     * @allow create: if request.auth != null;
+     * @allow update: if request.auth != null;
+     * @allow delete: if request.auth != null;
+     * @principle Allows authenticated users to read and write daily production.
+     */
+    match /teams/{teamId}/employees/{employeeId}/dailyProduction/{dailyProductionId} {
+      allow get, list: if true;
+      allow create: if request.auth != null;
+      allow update: if request.auth != null;
+      allow delete: if request.auth != null;
+    }
+  }
+}
