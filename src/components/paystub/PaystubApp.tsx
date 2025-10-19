@@ -39,10 +39,14 @@ export default function PaystubApp() {
   const { toast } = useToast();
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [password, setPassword] = useState('');
+  const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
+
 
   const handleLogin = () => {
     if (password === SOFT_PASSWORD) {
       setIsAuthenticated(true);
+      setIsLoginModalOpen(false); // Close modal on successful login
+      setPassword(''); // Clear password
       toast({ title: "Success", description: "Authenticated successfully." });
     } else {
       toast({ title: "Error", description: "Incorrect password.", variant: "destructive" });
@@ -164,12 +168,12 @@ export default function PaystubApp() {
 
   return (
       <div className="flex flex-col min-h-screen bg-gray-100 text-gray-800">
-        <Header />
+        <Header onLoginClick={() => setIsLoginModalOpen(true)} />
         <main className="flex-1 max-w-7xl mx-auto p-4 sm:p-6 lg:p-8 w-full">
-          <Dialog open={!isAuthenticated} onOpenChange={() => {}}>
-            <DialogContent className="sm:max-w-[425px]" hideCloseButton>
+          <Dialog open={isLoginModalOpen} onOpenChange={setIsLoginModalOpen}>
+            <DialogContent className="sm:max-w-[425px]">
               <DialogHeader>
-                <DialogTitle>Authentication Required</DialogTitle>
+                <DialogTitle>Authentication</DialogTitle>
                 <DialogDescription>
                   Please enter the password to enable editing and generate paystubs.
                 </DialogDescription>
@@ -232,5 +236,3 @@ export default function PaystubApp() {
       </div>
   );
 }
-
-    
