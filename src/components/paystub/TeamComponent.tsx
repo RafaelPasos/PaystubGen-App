@@ -137,7 +137,6 @@ export default function TeamComponent({ team, isAuthenticated }: { team: Team, i
                                         value={entry?.quantity ?? 0}
                                         onChange={(e) => handleProductionChange(employee.id, item.id, dayIndex, e.currentTarget.value)}
                                         className="w-20 p-2"
-                                        disabled={!isAuthenticated}
                                     />
                                 </td>
                              )
