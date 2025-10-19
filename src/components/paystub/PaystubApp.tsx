@@ -54,10 +54,6 @@ export default function PaystubApp() {
   };
 
   const handleSaveChanges = async () => {
-    if (!isAuthenticated) {
-      setIsLoginModalOpen(true);
-      return;
-    }
     try {
         await saveAllChanges();
         toast({ title: "Success", description: "Changes saved successfully." });
@@ -67,6 +63,10 @@ export default function PaystubApp() {
   };
 
   const generatePDF = () => {
+    if (!isAuthenticated) {
+      setIsLoginModalOpen(true);
+      return;
+    }
     if (hasChanges) {
       toast({ title: "Unsaved Changes", description: "Please save your changes before generating the PDF.", variant: "destructive" });
       return;
