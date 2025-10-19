@@ -35,7 +35,7 @@ const SOFT_PASSWORD = "password"; // A simple, hardcoded password
 
 export default function PaystubApp() {
   const [payDate, setPayDate] = useState<Date | undefined>(new Date());
-  const { employees, items, production, teams, loading, hasChanges, saveAllChanges } = useData();
+  const { employees, items, production, teams, loading, hasChanges, saveAllChanges, resetProduction } = useData();
   const { toast } = useToast();
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [password, setPassword] = useState('');
@@ -225,6 +225,9 @@ export default function PaystubApp() {
           </Tabs>
 
           <footer className="mt-12 text-center flex justify-center items-center gap-4">
+            <Button onClick={resetProduction} variant="outline" className="bg-white text-gray-700 font-bold px-10 py-4 rounded-lg shadow-xl hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-400 transition-transform transform hover:scale-105 text-lg h-auto">
+                REINICIAR
+            </Button>
             {hasChanges && (
                 <Button onClick={handleSaveChanges} className="bg-yellow-500 text-white font-bold px-10 py-4 rounded-lg shadow-xl hover:bg-yellow-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-yellow-500 transition-transform transform hover:scale-105 text-lg h-auto">
                     GUARDAR CAMBIOS

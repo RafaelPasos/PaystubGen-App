@@ -27,6 +27,7 @@ interface DataContextType {
   handleRateChange: (itemId: string, newRate: string) => void;
   handleProductionChange: (employeeId: string, itemId: string, dayIndex: number, value: string) => void;
   saveAllChanges: () => Promise<void>;
+  resetProduction: () => void;
 }
 
 const DataContext = createContext<DataContextType | undefined>(undefined);
@@ -77,7 +78,8 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
   };
   
   const handleProductionChange = (employeeId: string, itemId: string, dayIndex: number, value: string) => {
-    const quantity = parseInt(value, 10) || 0;
+    const quantity = parseInt(value, 10);
+    const finalQuantity = isNaN(quantity) ? 0 : quantity;
 
     const weekStart = startOfWeek(new Date(), { weekStartsOn: 1 }); // Monday
     const date = new Date(weekStart);
@@ -89,7 +91,7 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
     if (existingEntry) {
         setLocalProduction(prev => ({
             ...prev,
-            [existingEntry.id]: { ...existingEntry, quantity }
+            [existingEntry.id]: { ...existingEntry, quantity: finalQuantity }
         }));
     } else {
         const tempId = `new-${employeeId}-${itemId}-${dateString}`;
@@ -98,12 +100,24 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
             employeeId,
             productionItemId: itemId,
             date: dateString,
-            quantity
+            quantity: finalQuantity
         };
         setLocalProduction(prev => ({ ...prev, [tempId]: newEntry }));
     }
     setHasChanges(true);
   };
+
+  const resetProduction = useCallback(() => {
+    const updatedProduction: Record<string, ProductionEntry> = {};
+    for (const key in localProduction) {
+        updatedProduction[key] = {
+            ...localProduction[key],
+            quantity: 0
+        };
+    }
+    setLocalProduction(updatedProduction);
+    setHasChanges(true);
+  }, [localProduction]);
 
   const saveAllChanges = async () => {
     if (!firestore) return;
@@ -214,16 +228,13 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
     const teamsUnsub = onSnapshot(teamsQuery, async (teamsSnapshot) => {
         
         const teamsData = teamsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Team));
-        setTeams(teamsData);
         
         if (teamsData.length === 0) {
-            // If there are no teams, check if we need to create them
-            const teamsRef = collection(firestore, 'teams');
-            const teamsSnap = await getDocsFromServerNonBlocking(teamsRef);
+            const teamsSnap = await getDocsFromServerNonBlocking(collection(firestore, 'teams'));
             if (teamsSnap.empty) {
                 const batch = writeBatch(firestore);
                 for (const teamData of defaultTeams) {
-                    const teamRef = doc(teamsRef);
+                    const teamRef = doc(collection(firestore, 'teams'));
                     batch.set(teamRef, teamData);
                     const teamItems = defaultItems[teamData.name] || [];
                     const itemsRef = collection(firestore, `teams/${teamRef.id}/productionItems`);
@@ -239,14 +250,19 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
                         requestResourceData: 'Initial teams and items batch write'
                     }));
                 });
+            } else {
+              setTeams(teamsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Team)));
             }
              setLoading(false);
         } else {
+            setTeams(teamsData);
             const itemPromises = teamsData.map(team => getDocs(collection(firestore, `teams/${team.id}/productionItems`)));
             const employeePromises = teamsData.map(team => getDocs(collection(firestore, `teams/${team.id}/employees`)));
 
-            const itemSnapshots = await Promise.all(itemPromises);
-            const employeeSnapshots = await Promise.all(employeePromises);
+            const [itemSnapshots, employeeSnapshots] = await Promise.all([
+                Promise.all(itemPromises),
+                Promise.all(employeePromises)
+            ]);
 
             const allItems = itemSnapshots.flatMap(snap => snap.docs.map(d => ({id: d.id, ...d.data()} as ProductionItem)));
             const allEmployees = employeeSnapshots.flatMap(snap => snap.docs.map(d => ({id: d.id, ...d.data()} as Employee)));
@@ -328,6 +344,7 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
     handleRateChange,
     handleProductionChange,
     saveAllChanges,
+    resetProduction,
   };
 
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>;
