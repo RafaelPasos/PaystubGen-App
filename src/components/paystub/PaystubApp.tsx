@@ -47,18 +47,18 @@ export default function PaystubApp() {
       setIsAuthenticated(true);
       setIsLoginModalOpen(false); // Close modal on successful login
       setPassword(''); // Clear password
-      toast({ title: "Success", description: "Authenticated successfully." });
+      toast({ title: "Exito", description: "Contraseña correcta" });
     } else {
-      toast({ title: "Error", description: "Incorrect password.", variant: "destructive" });
+      toast({ title: "Error", description: "Contraseña incorrecta", variant: "destructive" });
     }
   };
 
   const handleSaveChanges = async () => {
     try {
         await saveAllChanges();
-        toast({ title: "Success", description: "Changes saved successfully." });
+        toast({ title: "Exito", description: "Cambios guardados." });
     } catch(e) {
-        toast({ title: "Error", description: "Could not save changes.", variant: "destructive" });
+        toast({ title: "Error", description: "No se pudieron guardar los cambios.", variant: "destructive" });
     }
   };
 
@@ -68,15 +68,15 @@ export default function PaystubApp() {
       return;
     }
     if (hasChanges) {
-      toast({ title: "Unsaved Changes", description: "Please save your changes before generating the PDF.", variant: "destructive" });
+      toast({ title: "Cambios sin guardar", description: "Por favor guarde sus cambios antes de generar el PDF.", variant: "destructive" });
       return;
     }
     if (!payDate) {
-      toast({ title: "Error", description: "Please select a pay date.", variant: "destructive" });
+      toast({ title: "Error", description: "Por favor selecione una fecha", variant: "destructive" });
       return;
     }
     if (employees.length === 0) {
-      toast({ title: "Error", description: "Add at least one employee to generate a report.", variant: "destructive" });
+      toast({ title: "Error", description: "Agrega al menos un empleado para crear el reporte", variant: "destructive" });
       return;
     }
 
@@ -163,7 +163,7 @@ export default function PaystubApp() {
       });
     });
 
-    doc.save(`paystubs_${formattedPayDate.replace(/-/g, '_')}.pdf`);
+    doc.save(`recibos_${formattedPayDate.replace(/-/g, '_')}.pdf`);
   };
 
   if (loading) {
@@ -177,9 +177,9 @@ export default function PaystubApp() {
           <Dialog open={isLoginModalOpen} onOpenChange={setIsLoginModalOpen}>
             <DialogContent className="sm:max-w-[425px]">
               <DialogHeader>
-                <DialogTitle>Authentication</DialogTitle>
+                <DialogTitle>Contraseña</DialogTitle>
                 <DialogDescription>
-                  Please enter the password to enable editing and generate paystubs.
+                  Ingrese contraseña para acceder e imprimir recibos.
                 </DialogDescription>
               </DialogHeader>
               <div className="grid gap-4 py-4">
@@ -188,14 +188,14 @@ export default function PaystubApp() {
                     type="password"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    placeholder="Enter password"
+                    placeholder="Ingrese contraseña"
                     className="w-full p-3"
                     onKeyDown={(e) => e.key === 'Enter' && handleLogin()}
                   />
               </div>
               <DialogFooter>
                 <Button onClick={handleLogin} className="w-full bg-blue-600 text-white font-bold py-3 rounded-lg shadow-lg hover:bg-blue-700 text-lg h-auto">
-                  Login
+                  Entrar
                 </Button>
               </DialogFooter>
             </DialogContent>

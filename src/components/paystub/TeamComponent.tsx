@@ -30,7 +30,7 @@ export default function TeamComponent({ team, isAuthenticated }: { team: Team, i
     }
   };
 
-  const days = ['Lunes', 'Martes', 'Miercoles', 'Jueves', 'Viernes', 'Sábado'];
+  const days = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
 
   return (
     <div>
@@ -93,9 +93,9 @@ export default function TeamComponent({ team, isAuthenticated }: { team: Team, i
                   </AlertDialogTrigger>
                   <AlertDialogContent>
                     <AlertDialogHeader>
-                      <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                      <AlertDialogTitle>Estas seguro?</AlertDialogTitle>
                       <AlertDialogDescription>
-                        This action cannot be undone. This will permanently delete {employee.name}.
+                        Esta accion no se puede cancelar, esta seguro de eliminar a {employee.name}?
                       </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>

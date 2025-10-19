@@ -1,4 +1,4 @@
-# **App Name**: Paystub Pilot
+# **App Name**: GENERADOR RECIBOS DE PAGO
 
 ## Core Features:
 

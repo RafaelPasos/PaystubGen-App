@@ -4,8 +4,8 @@ import { Toaster } from "@/components/ui/toaster"
 import { FirebaseClientProvider } from '@/firebase/client-provider';
 
 export const metadata: Metadata = {
-  title: 'Paystub Pilot',
-  description: 'Generate paystubs from your production data with ease.',
+  title: 'Generador de Recibos de Pagos',
+  description: 'Genera recibos de pahos',
 };
 
 export default function RootLayout({

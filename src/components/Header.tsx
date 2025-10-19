@@ -16,7 +16,7 @@ export default function Header({ onLoginClick }: HeaderProps) {
         <div className="w-1/4 flex justify-end">
            <Button onClick={onLoginClick} variant="outline" className="flex items-center gap-2">
             <LogIn size={18} />
-            <span>Login</span>
+            <span>Entrar</span>
           </Button>
         </div>
       </div>
