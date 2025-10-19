@@ -38,7 +38,6 @@ export default function TeamComponent({ team, isAuthenticated }: { team: Team, i
       <div className="bg-white p-6 rounded-2xl shadow-lg mb-8">
         <h2 className="text-2xl font-semibold mb-4 border-b pb-3">{team.name}</h2>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          {isAuthenticated && (
             <div className="md:col-span-3">
               <label htmlFor={`employeeName-${team.id}`} className="block text-sm font-medium text-gray-700 mb-1">Nombre del nuevo empleado</label>
               <div className="flex space-x-3">
@@ -55,8 +54,6 @@ export default function TeamComponent({ team, isAuthenticated }: { team: Team, i
                 </Button>
               </div>
             </div>
-          )}
-          {isAuthenticated && (
             <div className="md:col-span-3 mt-4 pt-4 border-t">
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 {team.name === 'Corazones' ? 'Pago x pieza' : 'Pago por kg'}
@@ -81,7 +78,6 @@ export default function TeamComponent({ team, isAuthenticated }: { team: Team, i
                 ))}
               </div>
             </div>
-          )}
         </div>
       </div>
       )}
