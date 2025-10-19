@@ -129,11 +129,12 @@ export default function TeamComponent({ team, isAuthenticated }: { team: Team, i
                              date.setDate(date.getDate() + dayIndex);
                              const dateString = formatISO(date, { representation: 'date' });
                              const entry = Object.values(localProduction).find(p => p.employeeId === employee.id && p.productionItemId === item.id && p.date === dateString);
+                             const quantity = entry?.quantity;
                              return(
                                 <td key={dayIndex} className="p-1">
                                     <Input
                                         type="text"
-                                        value={entry?.quantity ?? 0}
+                                        value={quantity === 0 ? '' : quantity ?? ''}
                                         onChange={(e) => handleProductionChange(employee.id, item.id, dayIndex, e.currentTarget.value)}
                                         className="w-20 p-2"
                                     />

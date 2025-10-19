@@ -77,8 +77,7 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
   };
   
   const handleProductionChange = (employeeId: string, itemId: string, dayIndex: number, value: string) => {
-    const quantity = parseInt(value, 10);
-    if(isNaN(quantity)) return;
+    const quantity = parseInt(value, 10) || 0;
 
     const weekStart = startOfWeek(new Date(), { weekStartsOn: 1 }); // Monday
     const date = new Date(weekStart);
