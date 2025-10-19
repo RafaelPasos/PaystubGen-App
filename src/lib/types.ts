@@ -1,19 +1,25 @@
+export type Team = {
+    id: string;
+    name: string;
+};
+
 export type Employee = {
   id: string;
   name: string;
-  team: 'Team A' | 'Team B';
+  teamId: string;
 };
 
 export type ProductionItem = {
   id: string;
   name: string;
-  rate: number;
+  payRate: number;
+  teamId: string;
 };
 
 export type ProductionEntry = {
   id:string;
   employeeId: string;
-  itemId: string;
+  productionItemId: string;
   date: string; // ISO string for date
   quantity: number;
 };
