@@ -13,6 +13,14 @@ import { useToast } from '@/hooks/use-toast';
 import { startOfWeek, formatISO } from 'date-fns';
 import Loading from '@/app/loading';
 import { Input } from '@/components/ui/input';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
 
 // Extend jsPDF with autoTable - this is a workaround for module augmentation in a single file
 declare module 'jspdf' {
@@ -154,36 +162,38 @@ export default function PaystubApp() {
     return <Loading />;
   }
 
-  if (!isAuthenticated) {
-    return (
-      <div className="flex flex-col min-h-screen bg-gray-100 text-gray-800">
-        <Header />
-        <main className="flex-1 max-w-lg mx-auto p-4 sm:p-6 lg:p-8 w-full mt-10">
-          <div className="bg-white p-8 rounded-2xl shadow-lg">
-            <h2 className="text-2xl font-semibold mb-6 text-center">Authentication Required</h2>
-            <div className="space-y-4">
-              <Input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="Enter password"
-                className="w-full p-3"
-                onKeyDown={(e) => e.key === 'Enter' && handleLogin()}
-              />
-              <Button onClick={handleLogin} className="w-full bg-blue-600 text-white font-bold py-3 rounded-lg shadow-lg hover:bg-blue-700 text-lg h-auto">
-                Login
-              </Button>
-            </div>
-          </div>
-        </main>
-      </div>
-    );
-  }
-
   return (
       <div className="flex flex-col min-h-screen bg-gray-100 text-gray-800">
         <Header />
         <main className="flex-1 max-w-7xl mx-auto p-4 sm:p-6 lg:p-8 w-full">
+          <Dialog open={!isAuthenticated} onOpenChange={() => {}}>
+            <DialogContent className="sm:max-w-[425px]" hideCloseButton>
+              <DialogHeader>
+                <DialogTitle>Authentication Required</DialogTitle>
+                <DialogDescription>
+                  Please enter the password to enable editing and generate paystubs.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="grid gap-4 py-4">
+                 <Input
+                    id="password"
+                    type="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="Enter password"
+                    className="w-full p-3"
+                    onKeyDown={(e) => e.key === 'Enter' && handleLogin()}
+                  />
+              </div>
+              <DialogFooter>
+                <Button onClick={handleLogin} className="w-full bg-blue-600 text-white font-bold py-3 rounded-lg shadow-lg hover:bg-blue-700 text-lg h-auto">
+                  Login
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
+
           <div className="bg-white p-6 rounded-2xl shadow-lg mb-8">
             <h2 className="text-2xl font-semibold mb-4 text-center">Fecha de pago</h2>
             <div className="max-w-xs mx-auto">
@@ -207,16 +217,20 @@ export default function PaystubApp() {
           </Tabs>
 
           <footer className="mt-12 text-center flex justify-center items-center gap-4">
-            {hasChanges && (
+            {isAuthenticated && hasChanges && (
                 <Button onClick={handleSaveChanges} className="bg-yellow-500 text-white font-bold px-10 py-4 rounded-lg shadow-xl hover:bg-yellow-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-yellow-500 transition-transform transform hover:scale-105 text-lg h-auto">
                     GUARDAR CAMBIOS
                 </Button>
             )}
-            <Button onClick={generatePDF} className="bg-green-600 text-white font-bold px-10 py-4 rounded-lg shadow-xl hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 transition-transform transform hover:scale-105 text-lg h-auto">
-                GENERAR RECIBOS
-            </Button>
+            {isAuthenticated && (
+              <Button onClick={generatePDF} className="bg-green-600 text-white font-bold px-10 py-4 rounded-lg shadow-xl hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 transition-transform transform hover:scale-105 text-lg h-auto">
+                  GENERAR RECIBOS
+              </Button>
+            )}
           </footer>
         </main>
       </div>
   );
 }
+
+    
