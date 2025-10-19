@@ -89,17 +89,10 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
     const existingEntry = Object.values(localProduction).find(p => p.employeeId === employeeId && p.productionItemId === itemId && p.date === dateString);
 
     if (existingEntry) {
-        if (value === '' || finalQuantity === 0) {
-            setLocalProduction(prev => ({
-                ...prev,
-                [existingEntry.id]: { ...existingEntry, quantity: 0 }
-            }));
-        } else {
-             setLocalProduction(prev => ({
-                ...prev,
-                [existingEntry.id]: { ...existingEntry, quantity: finalQuantity }
-            }));
-        }
+      setLocalProduction(prev => ({
+          ...prev,
+          [existingEntry.id]: { ...existingEntry, quantity: value === '' ? 0 : finalQuantity }
+      }));
     } else {
         const tempId = `new-${employeeId}-${itemId}-${dateString}`;
         const newEntry: ProductionEntry = {
@@ -297,43 +290,74 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
 
     const unsubscribers: Unsubscribe[] = [];
 
-    // Fetch all items once
-    const itemPromises = teams.map(team => getDocs(collection(firestore, `teams/${team.id}/productionItems`)));
-    Promise.all(itemPromises).then(itemSnapshots => {
+    const fetchAllData = async () => {
+      setLoading(true);
+
+      try {
+        const itemPromises = teams.map(team => getDocs(collection(firestore, `teams/${team.id}/productionItems`)));
+        const itemSnapshots = await Promise.all(itemPromises);
         const allItems = itemSnapshots.flatMap(snap => snap.docs.map(d => ({id: d.id, ...d.data()} as ProductionItem)));
         setItems(allItems);
-    });
 
-    // Listen to employees and their production in real-time
+        const employeePromises = teams.map(team => getDocs(collection(firestore, `teams/${team.id}/employees`)));
+        const employeeSnapshots = await Promise.all(employeePromises);
+        const allEmployees = employeeSnapshots.flatMap(snap => snap.docs.map(d => ({id: d.id, ...d.data()} as Employee)));
+        
+        const uniqueEmployees = Array.from(new Map(allEmployees.map(e => [e.id, e])).values());
+        setEmployees(uniqueEmployees);
+
+
+        if (uniqueEmployees.length > 0) {
+          const productionPromises = uniqueEmployees.map(emp => getDocs(collection(firestore, `teams/${emp.teamId}/employees/${emp.id}/dailyProduction`)));
+          const productionSnapshots = await Promise.all(productionPromises);
+          const allProduction = productionSnapshots.flatMap(snap => snap.docs.map(d => ({id: d.id, ...d.data()} as ProductionEntry)));
+          setProduction(allProduction);
+        } else {
+          setProduction([]);
+        }
+
+      } catch (error) {
+        console.error("Error fetching initial data:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchAllData();
+
+    // Set up listeners for real-time updates
     teams.forEach(team => {
-        const empQuery = query(collection(firestore, `teams/${team.id}/employees`));
-        const empUnsub = onSnapshot(empQuery, (empSnapshot) => {
-            const teamEmployees = empSnapshot.docs.map(d => ({id: d.id, ...d.data()} as Employee));
+      const empQuery = query(collection(firestore, `teams/${team.id}/employees`));
+      const empUnsub = onSnapshot(empQuery, (empSnapshot) => {
+        const teamEmployees = empSnapshot.docs.map(d => ({id: d.id, ...d.data()} as Employee));
+        
+        setEmployees(prev => {
+          const otherTeamsEmployees = prev.filter(e => e.teamId !== team.id);
+          const updatedEmployees = [...otherTeamsEmployees, ...teamEmployees];
+          return Array.from(new Map(updatedEmployees.map(e => [e.id, e])).values());
+        });
 
-            setEmployees(prev => [...prev.filter(e => e.teamId !== team.id), ...teamEmployees]);
-
-            const prodUnsubs: Unsubscribe[] = [];
-
-            if (teamEmployees.length > 0) {
-                teamEmployees.forEach(emp => {
-                    const prodQuery = query(collection(firestore, `teams/${emp.teamId}/employees/${emp.id}/dailyProduction`));
-                    const prodUnsub = onSnapshot(prodQuery, (prodSnapshot) => {
-                        const empProduction = prodSnapshot.docs.map(d => ({id: d.id, ...d.data()} as ProductionEntry));
-                        setProduction(prev => [...prev.filter(p => p.employeeId !== emp.id), ...empProduction]);
-                    }, err => handleSnapshotError(err, `teams/${emp.teamId}/employees/${emp.id}/dailyProduction`));
-                    prodUnsubs.push(prodUnsub);
-                });
-            } else {
-                 setProduction(prev => prev.filter(p => {
-                    const emp = employees.find(e => e.id === p.employeeId);
-                    return emp && emp.teamId !== team.id;
-                 }));
+        empSnapshot.docChanges().forEach(change => {
+            if (change.type === 'added') {
+                const newEmpId = change.doc.id;
+                const prodQuery = query(collection(firestore, `teams/${team.id}/employees/${newEmpId}/dailyProduction`));
+                const prodUnsub = onSnapshot(prodQuery, (prodSnapshot) => {
+                    const empProduction = prodSnapshot.docs.map(d => ({id: d.id, ...d.data()} as ProductionEntry));
+                    setProduction(prev => {
+                        const otherEmpProduction = prev.filter(p => p.employeeId !== newEmpId);
+                        return [...otherEmpProduction, ...empProduction];
+                    });
+                }, err => handleSnapshotError(err, `teams/${team.id}/employees/${newEmpId}/dailyProduction`));
+                unsubscribers.push(prodUnsub);
             }
-             unsubscribers.push(...prodUnsubs);
-
-        }, err => handleSnapshotError(err, `teams/${team.id}/employees`));
-
-        unsubscribers.push(empUnsub);
+             if (change.type === 'removed') {
+                const removedEmpId = change.doc.id;
+                setProduction(prev => prev.filter(p => p.employeeId !== removedEmpId));
+            }
+        });
+        
+      }, err => handleSnapshotError(err, `teams/${team.id}/employees`));
+      unsubscribers.push(empUnsub);
     });
 
     return () => unsubscribers.forEach(unsub => unsub());
@@ -355,7 +379,7 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
         throw e;
       });
 
-      // Manually update local state before creating production entries
+      // The listener will pick up the change, but we can optimistically update for faster UI response
       const newEmployee = { id: newDocRef.id, ...employee };
       setEmployees(prev => [...prev, newEmployee]);
 
@@ -363,8 +387,6 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
     } catch (e) {
       if (!(e instanceof FirestorePermissionError)) {
           console.error("Error adding employee:", e);
-           // Rollback local state update on error
-          setEmployees(prev => prev.filter(emp => emp.name !== employee.name));
       }
     }
   };
@@ -372,10 +394,7 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
   const deleteEmployee = async (id: string, teamId: string) => {
     if (!firestore) return;
 
-    // Manually remove from local state first for instant UI update
-    const employeeToDelete = employees.find(e => e.id === id);
-    if (!employeeToDelete) return;
-
+    // Optimistic update
     setEmployees(prev => prev.filter(e => e.id !== id));
     setProduction(prev => prev.filter(p => p.employeeId !== id));
 
@@ -391,10 +410,7 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
         await deleteDoc(ref);
     } catch(e) {
         console.error("Error deleting employee and their production:", e);
-        // If deletion fails, rollback the local state change
-        setEmployees(prev => [...prev, employeeToDelete]);
-        // Re-fetching production might be needed for a full rollback, but can be complex.
-        // For now, we just add the employee back.
+        // On failure, the listener should eventually correct the state, but a manual rollback could be implemented here if needed.
          errorEmitter.emit('permission-error', new FirestorePermissionError({
             path: ref.path,
             operation: 'delete',
@@ -429,3 +445,5 @@ export const useData = () => {
   }
   return context;
 };
+
+    
