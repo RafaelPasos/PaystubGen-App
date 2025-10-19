@@ -7,7 +7,7 @@ import { useFirestore } from '@/firebase';
 import type { Employee, ProductionItem, ProductionEntry, Team } from '@/lib/types';
 import { useToast } from "@/hooks/use-toast"
 import { addDocumentNonBlocking, deleteDocumentNonBlocking, updateDocumentNonBlocking } from '@/firebase/non-blocking-updates';
-import { subDays, startOfWeek, formatISO } from 'date-fns';
+import { startOfWeek, formatISO } from 'date-fns';
 
 interface DataContextType {
   teams: Team[];
@@ -28,7 +28,12 @@ interface DataContextType {
 
 const DataContext = createContext<DataContextType | undefined>(undefined);
 
-const defaultItems = {
+const defaultTeams = [
+    { name: "Corazones" },
+    { name: "Hojas" }
+];
+
+const defaultItems: Record<string, Omit<ProductionItem, 'id' | 'teamId'>[]> = {
   "Corazones": [
     { name: 'Chico', payRate: 10 },
     { name: 'Mediano', payRate: 12 },
@@ -80,46 +85,64 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
     if (!firestore) return;
     setLoading(true);
 
-    const setupTeamData = async (team: Team) => {
-        const itemsRef = collection(firestore, `teams/${team.id}/productionItems`);
-        const itemsSnap = await getDocs(itemsRef);
-        if (itemsSnap.empty) {
+    const setupInitialData = async () => {
+        const teamsRef = collection(firestore, 'teams');
+        const teamsSnap = await getDocs(teamsRef);
+        
+        if (teamsSnap.empty) {
             const batch = writeBatch(firestore);
-            const teamDefaultItems = defaultItems[team.name as keyof typeof defaultItems] || [];
-            teamDefaultItems.forEach(item => {
-                const newItemRef = doc(itemsRef);
-                batch.set(newItemRef, { ...item, teamId: team.id });
-            });
+            for (const team of defaultTeams) {
+                const teamRef = doc(teamsRef);
+                batch.set(teamRef, team);
+
+                const teamItems = defaultItems[team.name] || [];
+                const itemsRef = collection(firestore, `teams/${teamRef.id}/productionItems`);
+                teamItems.forEach(item => {
+                    const newItemRef = doc(itemsRef);
+                    batch.set(newItemRef, { ...item, teamId: teamRef.id });
+                });
+            }
             await batch.commit();
         }
-
-        onSnapshot(query(collection(firestore, `teams/${team.id}/employees`)), (snapshot) => {
-            const employeeData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Employee));
-            setEmployees(prev => [...prev.filter(e => e.teamId !== team.id), ...employeeData]);
-
-            snapshot.docs.forEach(empDoc => {
-                onSnapshot(collection(firestore, `teams/${team.id}/employees/${empDoc.id}/dailyProduction`), productionSnapshot => {
-                    const productionData = productionSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ProductionEntry));
-                    setProduction(prev => [...prev.filter(p=> p.employeeId !== empDoc.id), ...productionData]);
-                });
-            });
-        });
-
-        onSnapshot(itemsRef, (snapshot) => {
-            const itemsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ProductionItem));
-            setItems(prev => [...prev.filter(i => i.teamId !== team.id), ...itemsData]);
-        });
     };
+
 
     const unsubTeams = onSnapshot(collection(firestore, 'teams'), async (snapshot) => {
       const teamsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Team));
       setTeams(teamsData);
       
       if (teamsData.length > 0) {
-        await Promise.all(teamsData.map(team => setupTeamData(team)));
+        const employeeUnsubs = teamsData.flatMap(team => {
+            const employeesRef = collection(firestore, `teams/${team.id}/employees`);
+            const itemsRef = collection(firestore, `teams/${team.id}/productionItems`);
+            
+            const unsubEmployees = onSnapshot(employeesRef, empSnap => {
+                const teamEmployees = empSnap.docs.map(d => ({ id: d.id, ...d.data() } as Employee));
+                setEmployees(prev => [...prev.filter(e => e.teamId !== team.id), ...teamEmployees]);
+                
+                const prodUnsubs = teamEmployees.map(emp => {
+                    const prodRef = collection(firestore, `teams/${team.id}/employees/${emp.id}/dailyProduction`);
+                    return onSnapshot(prodRef, prodSnap => {
+                        const empProduction = prodSnap.docs.map(p => ({ id: p.id, ...p.data() } as ProductionEntry));
+                        setProduction(prev => [...prev.filter(p => p.employeeId !== emp.id), ...empProduction]);
+                    });
+                });
+                return () => prodUnsubs.forEach(unsub => unsub());
+            });
+
+            const unsubItems = onSnapshot(itemsRef, itemSnap => {
+                const teamItems = itemSnap.docs.map(d => ({ id: d.id, ...d.data() } as ProductionItem));
+                setItems(prev => [...prev.filter(i => i.teamId !== team.id), ...teamItems]);
+            });
+
+            return [unsubEmployees, unsubItems];
+        });
+
         setLoading(false);
+        return () => employeeUnsubs.forEach(unsub => unsub());
       } else {
-        setLoading(false);
+         await setupInitialData();
+         setLoading(false);
       }
     }, (error) => {
       console.error("Error fetching teams:", error);
@@ -127,15 +150,22 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
       setLoading(false);
     });
 
-    return () => unsubTeams();
+    return () => {
+        unsubTeams();
+    };
   }, [firestore, toast]);
   
 
   const addEmployee = async (employee: Omit<Employee, 'id'>) => {
     if (!firestore) return;
-    const newDocRef = await addDoc(collection(firestore, `teams/${employee.teamId}/employees`), employee);
-    const teamItems = items.filter(item => item.teamId === employee.teamId);
-    await createInitialProductionEntries(newDocRef.id, employee.teamId, teamItems);
+    try {
+      const newDocRef = await addDoc(collection(firestore, `teams/${employee.teamId}/employees`), employee);
+      const teamItems = items.filter(item => item.teamId === employee.teamId);
+      await createInitialProductionEntries(newDocRef.id, employee.teamId, teamItems);
+    } catch(e) {
+      console.error(e);
+      toast({ title: "Error", description: "Could not add employee", variant: "destructive" });
+    }
   };
 
   const updateEmployee = async (id: string, teamId: string, employee: Partial<Employee>) => {
@@ -165,7 +195,6 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
 
   const addProductionEntry = async (entry: Omit<ProductionEntry, 'id'>) => {
     if (!firestore) return;
-    // We need to find the teamId from the employee
     const employee = employees.find(e => e.id === entry.employeeId);
     if (!employee) return;
     await addDocumentNonBlocking(collection(firestore, `teams/${employee.teamId}/employees/${entry.employeeId}/dailyProduction`), entry as DocumentData);
