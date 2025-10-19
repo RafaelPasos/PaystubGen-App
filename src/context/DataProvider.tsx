@@ -102,102 +102,118 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
     });
   };
 
-
   useEffect(() => {
     if (!firestore) return;
-    setLoading(true);
+
+    let isActive = true;
+    let unsubscribes: (() => void)[] = [];
 
     const setupInitialData = async () => {
-        const teamsRef = collection(firestore, 'teams');
-        try {
-            const teamsSnap = await getDocs(teamsRef);
-            
-            if (teamsSnap.empty) {
-                const batch = writeBatch(firestore);
-                const teamRefs: {id: string, name: string}[] = [];
-    
-                for (const team of defaultTeams) {
-                    const teamRef = doc(teamsRef);
-                    batch.set(teamRef, team);
-                    teamRefs.push({id: teamRef.id, name: team.name});
-                }
-    
-                for (const teamRef of teamRefs) {
-                    const teamItems = defaultItems[teamRef.name] || [];
-                    const itemsRef = collection(firestore, `teams/${teamRef.id}/productionItems`);
-                    teamItems.forEach(item => {
-                        const newItemRef = doc(itemsRef);
-                        batch.set(newItemRef, { ...item, teamId: teamRef.id });
-                    });
-                }
-                await batch.commit();
-            }
-        } catch (e) {
-             if (e instanceof FirestoreError) {
-                handleSnapshotError(e, teamsRef);
-            }
+      const teamsRef = collection(firestore, 'teams');
+      try {
+        const teamsSnap = await getDocs(teamsRef);
+        if (teamsSnap.empty) {
+          const batch = writeBatch(firestore);
+          const teamRefs: {id: string, name: string}[] = [];
+
+          for (const team of defaultTeams) {
+              const teamRef = doc(teamsRef);
+              batch.set(teamRef, team);
+              teamRefs.push({id: teamRef.id, name: team.name});
+          }
+
+          for (const teamRef of teamRefs) {
+              const teamItems = defaultItems[teamRef.name] || [];
+              const itemsRef = collection(firestore, `teams/${teamRef.id}/productionItems`);
+              teamItems.forEach(item => {
+                  const newItemRef = doc(itemsRef);
+                  batch.set(newItemRef, { ...item, teamId: teamRef.id });
+              });
+          }
+          await batch.commit();
         }
+      } catch (e) {
+        if (e instanceof FirestoreError) {
+          handleSnapshotError(e, teamsRef);
+        }
+      }
     };
     
     const initializeAndListen = async () => {
+        setLoading(true);
         await setupInitialData();
 
         const teamsRef = collection(firestore, 'teams');
-        const unsubTeams = onSnapshot(teamsRef, async (snapshot) => {
-          const teamsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Team));
-          setTeams(teamsData);
-          
-          if (teamsData.length > 0) {
-            // Unsubscribe from previous listeners to avoid duplicates
-            // This part is complex to manage here, so we rely on the main useEffect cleanup.
-            // But ideally, we'd manage per-team subscriptions more granularly.
-            
-            teamsData.forEach(team => {
-                const employeesRef = collection(firestore, `teams/${team.id}/employees`);
-                onSnapshot(employeesRef, empSnap => {
-                    const teamEmployees = empSnap.docs.map(d => ({ id: d.id, ...d.data() } as Employee));
-                    setEmployees(prev => [...prev.filter(e => e.teamId !== team.id), ...teamEmployees]);
-                    
-                    teamEmployees.forEach(emp => {
-                        const prodRef = collection(firestore, `teams/${team.id}/employees/${emp.id}/dailyProduction`);
-                        onSnapshot(prodRef, prodSnap => {
-                            const empProduction = prodSnap.docs.map(p => ({ id: p.id, ...p.data() } as ProductionEntry));
-                            setProduction(prev => [...prev.filter(p => p.employeeId !== emp.id), ...empProduction]);
-                        }, (error) => handleSnapshotError(error, prodRef));
-                    });
-    
-                }, (error) => handleSnapshotError(error, employeesRef));
-    
-                const itemsRef = collection(firestore, `teams/${team.id}/productionItems`);
-                onSnapshot(itemsRef, itemSnap => {
-                    const teamItems = itemSnap.docs.map(d => ({ id: d.id, ...d.data() } as ProductionItem));
-                    setItems(prev => [...prev.filter(i => i.teamId !== team.id), ...teamItems]);
-                }, (error) => handleSnapshotError(error, itemsRef));
-            });
-          }
-          setLoading(false);
-        }, (error) => {
-          handleSnapshotError(error, teamsRef);
-          setLoading(false);
-        });
+        const teamsUnsub = onSnapshot(teamsRef, (snapshot) => {
+            if (!isActive) return;
 
-        // This function will be returned for cleanup
-        return () => {
-            unsubTeams();
-            // Note: inner subscriptions are not unsubscribed here, which can lead to memory leaks.
-            // A more robust implementation would manage all unsubscribe functions in an array.
-        };
+            const teamsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Team));
+            setTeams(teamsData);
+
+            // Clean up old listeners before setting up new ones
+            unsubscribes.forEach(unsub => unsub());
+            unsubscribes = [];
+
+            if (teamsData.length > 0) {
+                const newEmployees: Employee[] = [];
+                const newItems: ProductionItem[] = [];
+                const newProduction: ProductionEntry[] = [];
+                
+                const teamPromises = teamsData.map(team => new Promise<void>(resolveTeam => {
+                    const employeesRef = collection(firestore, `teams/${team.id}/employees`);
+                    const itemsRef = collection(firestore, `teams/${team.id}/productionItems`);
+                    
+                    const empUnsub = onSnapshot(employeesRef, empSnap => {
+                        const teamEmployees = empSnap.docs.map(d => ({ id: d.id, ...d.data() } as Employee));
+                        newEmployees.push(...teamEmployees);
+
+                        const prodPromises = teamEmployees.map(emp => new Promise<void>(resolveProd => {
+                            const prodRef = collection(firestore, `teams/${team.id}/employees/${emp.id}/dailyProduction`);
+                            const prodUnsub = onSnapshot(prodRef, prodSnap => {
+                                const empProduction = prodSnap.docs.map(p => ({ id: p.id, ...p.data() } as ProductionEntry));
+                                newProduction.push(...empProduction);
+                                resolveProd();
+                            }, error => handleSnapshotError(error, prodRef));
+                            unsubscribes.push(prodUnsub);
+                        }));
+                        
+                        Promise.all(prodPromises).then(() => resolveTeam());
+
+                    }, error => handleSnapshotError(error, employeesRef));
+
+                    const itemUnsub = onSnapshot(itemsRef, itemSnap => {
+                        const teamItems = itemSnap.docs.map(d => ({ id: d.id, ...d.data() } as ProductionItem));
+                        newItems.push(...teamItems);
+                    }, error => handleSnapshotError(error, itemsRef));
+
+                    unsubscribes.push(empUnsub, itemUnsub);
+                }));
+
+                Promise.all(teamPromises).then(() => {
+                    if(isActive) {
+                        setEmployees(newEmployees);
+                        setItems(newItems);
+                        setProduction(newProduction);
+                    }
+                });
+            }
+            setLoading(false);
+        }, (error) => {
+            if (isActive) {
+                handleSnapshotError(error, teamsRef);
+                setLoading(false);
+            }
+        });
+        unsubscribes.push(teamsUnsub);
     };
 
-    let cleanup = () => {};
-    initializeAndListen().then(unsub => {
-        cleanup = unsub;
-    });
+    initializeAndListen();
 
     return () => {
-        cleanup();
+        isActive = false;
+        unsubscribes.forEach(unsub => unsub());
     };
-  }, [firestore]);
+}, [firestore]);
   
 
   const addEmployee = async (employee: Omit<Employee, 'id'>) => {
