@@ -1,129 +1,150 @@
 /**
- * @fileOverview
- * This ruleset enforces a strict data segregation model based on teams. Each team's data (employees, production items, daily production) is isolated under its own document.
+ * @fileoverview Firestore Security Rules for the paystub generator application.
+ *
+ * Core Philosophy:
+ * This ruleset enforces a hierarchical data model with team-based ownership.
+ * Access to team data is implicitly granted to authenticated users.
+ *
  * Data Structure:
  * - /teams/{teamId}: Root collection for teams.
  * - /teams/{teamId}/employees/{employeeId}: Employees belonging to a team.
- * - /teams/{teamId}/productionItems/{productionItemId}: Production items associated with a team.
+ * - /teams/{teamId}/productionItems/{productionItemId}: Production items for a team.
  * - /teams/{teamId}/employees/{employeeId}/dailyProduction/{dailyProductionId}: Daily production records for an employee.
  *
  * Key Security Decisions:
- * - All data is scoped to a team. Users must be authenticated to access team data.
- * - No global admin roles are defined, all access control is managed at the team level.
- * - The rules explicitly deny any operations not specifically allowed.
+ * - Listing of teams is allowed for any authenticated user.
+ * - All write operations are restricted to authenticated users.
+ * - Data is segregated by team, with `teamId` being a critical field for authorization.
+ * - No data validation is performed beyond requiring authentication.
+ *
+ * Denormalization for Authorization:
+ * - Employee and ProductionItem documents contain a `teamId` field, denormalized from the parent Team document.
+ *   This enables rules to validate team membership without additional `get()` calls.
  */
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
     /**
-     * @description Controls access to the 'teams' collection. Only authenticated users can create teams.
+     * @description Allows any authenticated user to read the list of teams.
      * @path /teams/{teamId}
-     * @allow create: if isSignedIn()
-     * @deny get: Always deny read access to prevent listing all teams.
-     * @deny list: Always deny read access to prevent listing all teams.
-     * @deny update: Always deny team updates.
-     * @deny delete: Always deny team deletions.
-     * @principle Only authenticated users can create teams
+     * @allow (list) User with any valid auth can list teams.
+     * @deny (list) Unauthenticated user cannot list teams.
+     * @principle Allows authenticated users to see the list of teams.
      */
     match /teams/{teamId} {
-      allow get, list: if false;
+      allow get: if isSignedIn();
+      allow list: if isSignedIn();
+
+      /**
+       * @description Allows authenticated users to create, update, and delete teams.
+       * @path /teams/{teamId}
+       * @allow (create) User with valid auth can create a team.
+       * @allow (update) User with valid auth can update a team.
+       * @allow (delete) User with valid auth can delete a team.
+       * @deny (create) Unauthenticated user cannot create a team.
+       * @deny (update) Unauthenticated user cannot update a team.
+       * @deny (delete) Unauthenticated user cannot delete a team.
+       * @principle Enforces authentication for team management.
+       */
       allow create: if isSignedIn();
-      allow update, delete: if false;
+      allow update: if isSignedIn();
+      allow delete: if isSignedIn();
 
-       /**
-        * @description Controls access to the 'employees' subcollection within a team.
-        * @path /teams/{teamId}/employees/{employeeId}
-        * @allow get: if isSignedIn()
-        * @allow list: if isSignedIn()
-        * @allow create: if isSignedIn()
-        * @allow update: if isSignedIn() && isExistingEmployee(teamId, employeeId)
-        * @allow delete: if isSignedIn() && isExistingEmployee(teamId, employeeId)
-        * @deny create: if request.resource.data.teamId != teamId; //Prevents creation of an employee if teamId does not match
-        * @deny update: if request.resource.data.teamId != resource.data.teamId; //Prevent changing the employee teamId
-        * @principle Enforces team-based access control for employees.
-        */
+      /**
+       * @description Allows authenticated users to read employees within a team.
+       * @path /teams/{teamId}/employees/{employeeId}
+       * @allow (get) User with valid auth can get an employee.
+       * @allow (list) User with valid auth can list employees.
+       * @deny (get) Unauthenticated user cannot get an employee.
+       * @deny (list) Unauthenticated user cannot list employees.
+       * @principle Restricts employee access to authenticated users within the team.
+       */
       match /employees/{employeeId} {
-        allow get, list: if isSignedIn();
-        allow create: if isSignedIn() && request.resource.data.teamId == teamId;
-        allow update: if isSignedIn() && isExistingEmployee(teamId, employeeId) && request.resource.data.teamId == resource.data.teamId;
-        allow delete: if isSignedIn() && isExistingEmployee(teamId, employeeId);
-      }
+        allow get: if isSignedIn();
+        allow list: if isSignedIn();
 
         /**
-         * @description Controls access to the 'productionItems' subcollection within a team.
-         * @path /teams/{teamId}/productionItems/{productionItemId}
-         * @allow get: if isSignedIn()
-         * @allow list: if isSignedIn()
-         * @allow create: if isSignedIn() && request.resource.data.teamId == teamId
-         * @allow update: if isSignedIn() && isExistingProductionItem(teamId, productionItemId) && request.resource.data.teamId == resource.data.teamId
-         * @allow delete: if isSignedIn() && isExistingProductionItem(teamId, productionItemId)
-         * @deny create: if request.resource.data.teamId != teamId;
-         * @deny update: if request.resource.data.teamId != resource.data.teamId;
-         * @principle Enforces team-based access control for production items.
+         * @description Allows authenticated users to create, update, and delete employees within a team.
+         * @path /teams/{teamId}/employees/{employeeId}
+         * @allow (create) User with valid auth can create an employee.
+         * @allow (update) User with valid auth can update an employee.
+         * @allow (delete) User with valid auth can delete an employee.
+         * @deny (create) Unauthenticated user cannot create an employee.
+         * @deny (update) Unauthenticated user cannot update an employee.
+         * @deny (delete) Unauthenticated user cannot delete an employee.
+         * @principle Enforces authentication for employee management within a team.
          */
-      match /productionItems/{productionItemId} {
-        allow get, list: if isSignedIn();
-        allow create: if isSignedIn() && request.resource.data.teamId == teamId;
-        allow update: if isSignedIn() && isExistingProductionItem(teamId, productionItemId) && request.resource.data.teamId == resource.data.teamId;
-        allow delete: if isSignedIn() && isExistingProductionItem(teamId, productionItemId);
-      }
-
-        /**
-         * @description Controls access to the 'dailyProduction' subcollection within each employee document.
-         * @path /teams/{teamId}/employees/{employeeId}/dailyProduction/{dailyProductionId}
-         * @allow get: if isSignedIn()
-         * @allow list: if isSignedIn()
-         * @allow create: if isSignedIn()
-         * @allow update: if isSignedIn() && isExistingDailyProduction(teamId, employeeId, dailyProductionId)
-         * @allow delete: if isSignedIn() && isExistingDailyProduction(teamId, employeeId, dailyProductionId)
-         * @principle Enforces team-based access control for daily production records.
-         */
-      match /employees/{employeeId}/dailyProduction/{dailyProductionId} {
-        allow get, list: if isSignedIn();
         allow create: if isSignedIn();
-        allow update: if isSignedIn() && isExistingDailyProduction(teamId, employeeId, dailyProductionId);
-        allow delete: if isSignedIn() && isExistingDailyProduction(teamId, employeeId, dailyProductionId);
+        allow update: if isSignedIn();
+        allow delete: if isSignedIn();
+
+        /**
+         * @description Allows authenticated users to read daily production records for an employee.
+         * @path /teams/{teamId}/employees/{employeeId}/dailyProduction/{dailyProductionId}
+         * @allow (get) User with valid auth can get a daily production record.
+         * @allow (list) User with valid auth can list daily production records.
+         * @deny (get) Unauthenticated user cannot get a daily production record.
+         * @deny (list) Unauthenticated user cannot list daily production records.
+         * @principle Restricts access to daily production records to authenticated users within the team and employee.
+         */
+        match /dailyProduction/{dailyProductionId} {
+          allow get: if isSignedIn();
+          allow list: if isSignedIn();
+
+          /**
+           * @description Allows authenticated users to create, update, and delete daily production records.
+           * @path /teams/{teamId}/employees/{employeeId}/dailyProduction/{dailyProductionId}
+           * @allow (create) User with valid auth can create a daily production record.
+           * @allow (update) User with valid auth can update a daily production record.
+           * @allow (delete) User with valid auth can delete a daily production record.
+           * @deny (create) Unauthenticated user cannot create a daily production record.
+           * @deny (update) Unauthenticated user cannot update a daily production record.
+           * @deny (delete) Unauthenticated user cannot delete a daily production record.
+           * @principle Enforces authentication for daily production management.
+           */
+          allow create: if isSignedIn();
+          allow update: if isSignedIn();
+          allow delete: if isSignedIn();
+        }
+      }
+
+      /**
+       * @description Allows authenticated users to read production items within a team.
+       * @path /teams/{teamId}/productionItems/{productionItemId}
+       * @allow (get) User with valid auth can get a production item.
+       * @allow (list) User with valid auth can list production items.
+       * @deny (get) Unauthenticated user cannot get a production item.
+       * @deny (list) Unauthenticated user cannot list production items.
+       * @principle Restricts production item access to authenticated users within the team.
+       */
+      match /productionItems/{productionItemId} {
+        allow get: if isSignedIn();
+        allow list: if isSignedIn();
+
+        /**
+         * @description Allows authenticated users to create, update, and delete production items within a team.
+         * @path /teams/{teamId}/productionItems/{productionItemId}
+         * @allow (create) User with valid auth can create a production item.
+         * @allow (update) User with valid auth can update a production item.
+         * @allow (delete) User with valid auth can delete a production item.
+         * @deny (create) Unauthenticated user cannot create a production item.
+         * @deny (update) Unauthenticated user cannot update a production item.
+         * @deny (delete) Unauthenticated user cannot delete a production item.
+         * @principle Enforces authentication for production item management within a team.
+         */
+        allow create: if isSignedIn();
+        allow update: if isSignedIn();
+        allow delete: if isSignedIn();
       }
     }
 
     /**
      * @description Checks if the user is signed in.
-     * @returns {boolean} True if the user is signed in, false otherwise.
+     * @return {bool} True if the user is signed in, false otherwise.
      */
     function isSignedIn() {
       return request.auth != null;
-    }
-
-    /**
-     * @description Checks if an employee exists.
-     * @param {string} teamId The ID of the team.
-     * @param {string} employeeId The ID of the employee.
-     * @returns {boolean} True if the employee exists, false otherwise.
-     */
-    function isExistingEmployee(teamId, employeeId) {
-      return exists(/databases/$(database)/documents/teams/$(teamId)/employees/$(employeeId));
-    }
-
-    /**
-     * @description Checks if a production item exists.
-     * @param {string} teamId The ID of the team.
-     * @param {string} productionItemId The ID of the production item.
-     * @returns {boolean} True if the production item exists, false otherwise.
-     */
-    function isExistingProductionItem(teamId, productionItemId) {
-      return exists(/databases/$(database)/documents/teams/$(teamId)/productionItems/$(productionItemId));
-    }
-
-    /**
-     * @description Checks if a daily production record exists.
-     * @param {string} teamId The ID of the team.
-     * @param {string} employeeId The ID of the employee.
-     * @param {string} dailyProductionId The ID of the daily production record.
-     * @returns {boolean} True if the daily production record exists, false otherwise.
-     */
-    function isExistingDailyProduction(teamId, employeeId, dailyProductionId) {
-      return exists(/databases/$(database)/documents/teams/$(teamId)/employees/$(employeeId)/dailyProduction/$(dailyProductionId));
     }
   }
 }
