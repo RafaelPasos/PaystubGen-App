@@ -25,10 +25,23 @@ declare module 'jspdf' {
 
 export default function PaystubApp() {
   const [payDate, setPayDate] = useState<Date | undefined>(new Date());
-  const { employees, items, production, teams, loading } = useData();
+  const { employees, items, production, teams, loading, hasChanges, saveAllChanges } = useData();
   const { toast } = useToast();
 
+  const handleSaveChanges = async () => {
+    try {
+        await saveAllChanges();
+        toast({ title: "Success", description: "Changes saved successfully." });
+    } catch(e) {
+        toast({ title: "Error", description: "Could not save changes.", variant: "destructive" });
+    }
+  };
+
   const generatePDF = () => {
+    if (hasChanges) {
+      toast({ title: "Unsaved Changes", description: "Please save your changes before generating the PDF.", variant: "destructive" });
+      return;
+    }
     if (!payDate) {
       toast({ title: "Error", description: "Please select a pay date.", variant: "destructive" });
       return;
@@ -154,7 +167,12 @@ export default function PaystubApp() {
             ))}
           </Tabs>
 
-          <footer className="mt-12 text-center">
+          <footer className="mt-12 text-center flex justify-center items-center gap-4">
+            {hasChanges && (
+                <Button onClick={handleSaveChanges} className="bg-yellow-500 text-white font-bold px-10 py-4 rounded-lg shadow-xl hover:bg-yellow-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-yellow-500 transition-transform transform hover:scale-105 text-lg h-auto">
+                    GUARDAR CAMBIOS
+                </Button>
+            )}
             <Button onClick={generatePDF} className="bg-green-600 text-white font-bold px-10 py-4 rounded-lg shadow-xl hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 transition-transform transform hover:scale-105 text-lg h-auto">
                 GENERAR RECIBOS
             </Button>
