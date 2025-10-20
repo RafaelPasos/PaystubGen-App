@@ -56,9 +56,9 @@ export default function TeamComponent({ team, isAuthenticated }: { team: Team, i
             </div>
             <div className="md:col-span-3 mt-4 pt-4 border-t">
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                {team.name === 'Corazones' ? 'Pago x pieza' : 'Pago por kg'}
+                {team.name.includes('Corazones') ? 'Pago x pieza' : 'Pago por kg'}
               </label>
-              <div className={`grid grid-cols-2 ${team.name === 'Corazones' ? 'sm:grid-cols-4' : 'sm:grid-cols-3'} gap-4`}>
+              <div className={`grid grid-cols-2 ${team.name.includes('Corazones') ? 'sm:grid-cols-4' : 'sm:grid-cols-3'} gap-4`}>
                 {teamItems.map(item => (
                   <div key={item.id}>
                     <label className="block text-sm font-medium text-gray-600 mb-1">{item.name}</label>
