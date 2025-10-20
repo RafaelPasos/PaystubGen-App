@@ -105,7 +105,7 @@ export default function PaystubApp() {
     const activeTeam = teams.find(t => t.name === activeTab);
     if(activeTeam) {
       resetProduction(activeTeam.id);
-      toast({ title: "Reiniciado", description: `Se reinició la producción para ${activeTeam.name}.`});
+      toast({ title: "Reiniciando", description: `Presione Guardar para reiniciar la producción para ${activeTeam.name}.`});
     }
   };
 
