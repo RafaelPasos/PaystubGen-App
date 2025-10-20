@@ -67,7 +67,7 @@ export default function TeamComponent({ team, isAuthenticated }: { team: Team, i
                       <Input
                         type="number"
                         min="0"
-                        step="0.01"
+                        step="1"
                         value={localRates[item.id] ?? ''}
                         onChange={(e) => handleRateChange(item.id, e.currentTarget.value)}
                         className="w-full pl-7 p-3"

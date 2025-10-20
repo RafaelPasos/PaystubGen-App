@@ -40,24 +40,13 @@ const defaultTeams = [
 ];
 
 const defaultItems: Record<string, Omit<ProductionItem, 'id' | 'teamId'>[]> = {
-  "Corazones Salitre": [
+  "Corazones": [
     { name: 'Chico', payRate: 10 },
     { name: 'Mediano', payRate: 12 },
     { name: 'Grande', payRate: 14 },
     { name: 'Mini', payRate: 10 },
   ],
-  "Corazones agua caliente": [
-    { name: 'Chico', payRate: 10 },
-    { name: 'Mediano', payRate: 12 },
-    { name: 'Grande', payRate: 14 },
-    { name: 'Mini', payRate: 10 },
-  ],
-  "Hojas Salitre": [
-    { name: 'Blanca', payRate: 13 },
-    { name: 'Capote', payRate: 8 },
-    { name: 'Tira', payRate: 6 },
-  ],
-  "Hojas Estanzuela": [
+  "Hojas": [
     { name: 'Blanca', payRate: 13 },
     { name: 'Capote', payRate: 8 },
     { name: 'Tira', payRate: 6 },
@@ -286,7 +275,8 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
                     const teamRef = doc(collection(firestore, 'teams'));
                     batch.set(teamRef, teamData);
                     newTeams.push({id: teamRef.id, ...teamData});
-                    const teamItems = defaultItems[teamData.name] || [];
+                    const itemType = teamData.name.includes('Corazones') ? 'Corazones' : 'Hojas';
+                    const teamItems = defaultItems[itemType] || [];
                     const itemsRef = collection(firestore, `teams/${teamRef.id}/productionItems`);
                     teamItems.forEach(item => {
                         const newItemRef = doc(itemsRef);
@@ -315,7 +305,8 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
             const itemsSnapshot = await getDocsFromServer(collection(firestore, `teams/${team.id}/productionItems`));
             if (itemsSnapshot.empty) {
                 batchNeedsCommit = true;
-                const itemsToCreate = defaultItems[team.name] || defaultItems["Hojas Salitre"];
+                const itemType = team.name.includes('Corazones') ? 'Corazones' : 'Hojas';
+                const itemsToCreate = defaultItems[itemType];
                 const itemsRef = collection(firestore, `teams/${team.id}/productionItems`);
                 itemsToCreate.forEach(item => {
                     const newItemRef = doc(itemsRef);
