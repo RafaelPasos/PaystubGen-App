@@ -79,3 +79,64 @@ The database schema, defined in `docs/backend.json`, is designed for security, s
 - A global error-handling system is in place using `error-emitter.ts` and `FirebaseErrorListener.tsx`.
 - When a Firestore operation fails due to security rules, a custom `FirestorePermissionError` is thrown.
 - This error is caught and emitted globally. The `FirebaseErrorListener` component catches this event and throws the error again, allowing it to be caught by Next.js's development overlay. This provides clear, contextual feedback to the developer during debugging, showing the exact Firestore request that was denied.
+
+
+
+
+### Landing Page
+<img width="1182" height="559" alt="image" src="https://github.com/user-attachments/assets/6d86656d-4a26-4d53-8828-fcc3993305d8" />
+
+### Auth
+<img width="466" height="301" alt="image" src="https://github.com/user-attachments/assets/ec9acaf2-7f72-4018-a386-3c37ba73f860" />
+
+
+### Add Team
+<img width="194" height="79" alt="image" src="https://github.com/user-attachments/assets/5b942849-a855-4be7-8cf6-3f870753f900" />  
+<br>
+<img width="446" height="300" alt="image" src="https://github.com/user-attachments/assets/1cfea281-aa75-4ec1-a86c-f4f29609a9d3" />  
+<br>
+<img width="401" height="113" alt="image" src="https://github.com/user-attachments/assets/7c499993-5a23-4d73-9f52-079fafee863d" />  
+
+### Remove Team
+<img width="190" height="101" alt="image" src="https://github.com/user-attachments/assets/aec19a90-89e3-4022-ad12-431262dc4449" />  
+<br>
+<img width="530" height="218" alt="image" src="https://github.com/user-attachments/assets/5105a8f7-eb84-438e-a7b5-e9c541ab4dcf" />  
+<br>
+<img width="397" height="110" alt="image" src="https://github.com/user-attachments/assets/d81707ba-0376-4eee-a5fb-a75c5076978a" />  
+
+### Add Employee
+<img width="1133" height="217" alt="image" src="https://github.com/user-attachments/assets/16104d09-8e2a-4d13-af34-f83f7ae965d0" />  
+<br>
+<img width="1126" height="355" alt="image" src="https://github.com/user-attachments/assets/e57588ea-ccf9-415b-b2c5-0935818a802d" />  
+
+
+### Remove Employee
+<img width="1122" height="349" alt="image" src="https://github.com/user-attachments/assets/db85049a-da82-4906-91d5-9b1d0a57d060" />  
+<br>
+<img width="142" height="90" alt="image" src="https://github.com/user-attachments/assets/472adef3-5a4f-4cdd-99b7-3c9352027148" />  
+<br>
+<img width="525" height="179" alt="image" src="https://github.com/user-attachments/assets/2700ef39-b3b2-4fb3-9afa-3f5e9eca92da" />  
+
+
+### Save
+<img width="1134" height="466" alt="image" src="https://github.com/user-attachments/assets/0aa692da-6783-4f13-b4e0-9c7e6f1598e6" />  
+<br>
+<img width="399" height="110" alt="image" src="https://github.com/user-attachments/assets/b777fca5-a4ef-41da-a349-2d654e35f930" />  
+
+
+### Reset
+<img width="198" height="85" alt="image" src="https://github.com/user-attachments/assets/1ef9acf9-74cc-4d01-89c0-d34e90efa83e" />  
+<br>
+<img width="398" height="106" alt="image" src="https://github.com/user-attachments/assets/fcebb36f-5364-4265-bf77-369a09513970" />  
+<br>
+<img width="402" height="109" alt="image" src="https://github.com/user-attachments/assets/c0c4775c-1338-4920-9cbe-945293f954db" />  
+
+
+### Generate Report
+<img width="1131" height="848" alt="image" src="https://github.com/user-attachments/assets/7eb7319e-6e52-4644-92e2-8f379b81aa83" />
+<br>
+<img width="321" height="62" alt="image" src="https://github.com/user-attachments/assets/c5733475-a0e3-489d-b3cf-aaa5af17d108" />
+<br>
+<img width="746" height="960" alt="image" src="https://github.com/user-attachments/assets/47bfd680-ffbd-457f-b7c4-e5ebad94ff26" />
+
+
