@@ -51,7 +51,7 @@ export default function PaystubApp() {
     if (teams.length > 0) {
       const activeTabExists = teams.some(t => t.name === activeTab);
       if (!activeTab || !activeTabExists) {
-        setActiveTab(teams[0].name);
+        setActiveTab("Corazones Salitre");
       }
     } else if (teams.length === 0 && !loading) {
       setActiveTab('');
@@ -282,9 +282,9 @@ export default function PaystubApp() {
           
           {teams.length > 0 ? (
             <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-                <TabsList className="grid w-full grid-cols-4 h-auto mb-8">
+                <TabsList className="grid w-full grid-cols-2 md:grid-cols-4 h-auto mb-8">
                 {teams.map(team => (
-                    <TabsTrigger key={team.id} value={team.name} className="text-lg font-semibold py-3 px-8 transition-colors duration-300 data-[state=active]:border-blue-500 data-[state=active]:bg-blue-500 data-[state=active]:text-white">
+                    <TabsTrigger key={team.id} value={team.name} className="text-sm md:text-base font-semibold py-3 px-2 md:px-4 transition-colors duration-300 data-[state=active]:border-blue-500 data-[state=active]:bg-blue-500 data-[state=active]:text-white">
                     {team.name}
                     </TabsTrigger>
                 ))}
