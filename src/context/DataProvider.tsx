@@ -2,7 +2,7 @@
 
 import type { ReactNode } from 'react';
 import { createContext, useContext, useEffect, useState, useCallback } from 'react';
-import { collection, onSnapshot, doc, writeBatch, getDocs, FirestoreError, query, addDoc, deleteDoc, Unsubscribe } from 'firebase/firestore';
+import { collection, onSnapshot, doc, writeBatch, getDocs, FirestoreError, query, addDoc, deleteDoc, Unsubscribe, getDocsFromServer } from 'firebase/firestore';
 import { useFirestore } from '@/firebase';
 import type { Employee, ProductionItem, ProductionEntry, Team } from '@/lib/types';
 import { startOfWeek, formatISO, eachDayOfInterval } from 'date-fns';
@@ -211,7 +211,10 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
 
   const createInitialProductionEntries = useCallback(async (employeeId: string, teamId: string, teamItems: ProductionItem[]) => {
     if (!firestore) return;
-    if (teamItems.length === 0) return;
+    if (teamItems.length === 0) {
+      console.warn(`No production items found for team ${teamId}. Cannot create initial entries.`);
+      return;
+    };
 
     const batch = writeBatch(firestore);
     const weekStart = startOfWeek(new Date(), { weekStartsOn: 1 });
@@ -288,6 +291,32 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
             setLoading(false);
         } else {
             setTeams(teamsData);
+            // Check for new teams without items
+            const itemCreationBatch = writeBatch(firestore);
+            let batchNeedsCommit = false;
+            for (const team of teamsData) {
+                const itemsSnapshot = await getDocsFromServer(collection(firestore, `teams/${team.id}/productionItems`));
+                if (itemsSnapshot.empty) {
+                    batchNeedsCommit = true;
+                    // Default to "Hojas" items if team name is not "Corazones"
+                    const itemsToCreate = defaultItems[team.name] || defaultItems["Hojas"];
+                    const itemsRef = collection(firestore, `teams/${team.id}/productionItems`);
+                    itemsToCreate.forEach(item => {
+                        const newItemRef = doc(itemsRef);
+                        itemCreationBatch.set(newItemRef, { ...item, teamId: team.id });
+                    });
+                }
+            }
+
+            if (batchNeedsCommit) {
+                await itemCreationBatch.commit().catch(e => {
+                     errorEmitter.emit('permission-error', new FirestorePermissionError({
+                        operation: 'write',
+                        path: 'productionItems',
+                        requestResourceData: 'Default items for new team batch write'
+                    }));
+                });
+            }
             setLoading(false);
         }
     }, (err) => {
@@ -317,7 +346,8 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
         const teamItems = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as ProductionItem));
         setItems(prev => {
           const otherTeamItems = prev.filter(i => i.teamId !== team.id);
-          return [...otherTeamItems, ...teamItems];
+          const updatedItems = [...otherTeamItems, ...teamItems];
+           return Array.from(new Map(updatedItems.map(i => [i.id, i])).values());
         });
       }, err => handleSnapshotError(err, `teams/${team.id}/productionItems`));
       unsubscribers.push(itemsUnsub);
@@ -448,3 +478,5 @@ export const useData = () => {
   }
   return context;
 };
+
+    
