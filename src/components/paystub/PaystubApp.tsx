@@ -5,7 +5,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import TeamComponent from '@/components/paystub/TeamComponent';
 import { Button } from '@/components/ui/button';
 import { DatePicker } from '@/components/ui/date-picker';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useData } from '@/context/DataProvider';
 import { jsPDF } from "jspdf";
 import 'jspdf-autotable';
@@ -35,16 +35,28 @@ const SOFT_PASSWORD = "password"; // A simple, hardcoded password
 
 export default function PaystubApp() {
   const [payDate, setPayDate] = useState<Date | undefined>(new Date());
-  const { teams, employees, items, production, loading, hasChanges, saveAllChanges, resetProduction, addTeam } = useData();
+  const { teams, employees, items, production, loading, hasChanges, saveAllChanges, resetProduction, addTeam, deleteTeam } = useData();
   const { toast } = useToast();
   
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [activeTab, setActiveTab] = useState('');
   
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
   const [password, setPassword] = useState('');
 
   const [isAddTeamModalOpen, setIsAddTeamModalOpen] = useState(false);
   const [newTeamName, setNewTeamName] = useState('');
+
+  useEffect(() => {
+    if (teams.length > 0) {
+      const activeTabExists = teams.some(t => t.name === activeTab);
+      if (!activeTab || !activeTabExists) {
+        setActiveTab(teams[0].name);
+      }
+    } else if (teams.length === 0 && !loading) {
+      setActiveTab('');
+    }
+  }, [teams, activeTab, loading]);
 
 
   const handleLogin = () => {
@@ -77,6 +89,15 @@ export default function PaystubApp() {
       } catch (e) {
         toast({ title: "Error", description: "No se pudo agregar el grupo.", variant: "destructive" });
       }
+    }
+  };
+
+  const handleDeleteTeam = async (teamId: string) => {
+    try {
+      await deleteTeam(teamId);
+      toast({ title: "Exito", description: `Grupo eliminado.`});
+    } catch(e) {
+       toast({ title: "Error", description: "No se pudo eliminar el grupo.", variant: "destructive" });
     }
   };
 
@@ -259,20 +280,25 @@ export default function PaystubApp() {
             </div>
           </div>
           
-          <Tabs defaultValue="Corazones Salitre" className="w-full">
-            <TabsList className="grid w-full grid-cols-4 h-auto mb-8">
-              {teams.map(team => (
-                 <TabsTrigger key={team.id} value={team.name} className="text-lg font-semibold py-3 px-8 transition-colors duration-300 data-[state=active]:border-blue-500 data-[state=active]:bg-blue-500 data-[state=active]:text-white">
-                  {team.name}
-                 </TabsTrigger>
-              ))}
-            </TabsList>
-            {teams.map(team => (
-               <TabsContent key={team.id} value={team.name}>
-                <TeamComponent team={team} isAuthenticated={isAuthenticated} />
-              </TabsContent>
-            ))}
-          </Tabs>
+          {teams.length > 0 ? (
+            <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+                <TabsList className="grid w-full grid-cols-4 h-auto mb-8">
+                {teams.map(team => (
+                    <TabsTrigger key={team.id} value={team.name} className="text-lg font-semibold py-3 px-8 transition-colors duration-300 data-[state=active]:border-blue-500 data-[state=active]:bg-blue-500 data-[state=active]:text-white">
+                    {team.name}
+                    </TabsTrigger>
+                ))}
+                </TabsList>
+                {teams.map(team => (
+                <TabsContent key={team.id} value={team.name}>
+                    <TeamComponent team={team} isAuthenticated={isAuthenticated} onDeleteTeam={handleDeleteTeam} />
+                </TabsContent>
+                ))}
+            </Tabs>
+          ) : (
+             <div className="text-center py-12 bg-white rounded-2xl shadow-lg"><h3 className="text-xl font-medium text-gray-500">No hay grupos. Agrega un grupo para empezar.</h3></div>
+          )}
+
 
           <footer className="mt-12 text-center flex justify-center items-center gap-4">
             <Button onClick={resetProduction} variant="outline" className="bg-white text-gray-700 font-bold px-10 py-4 rounded-lg shadow-xl hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-400 transition-transform transform hover:scale-105 text-lg h-auto">

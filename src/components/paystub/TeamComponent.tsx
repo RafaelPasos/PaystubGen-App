@@ -6,8 +6,9 @@ import { Input } from '@/components/ui/input';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import type { Team } from '@/lib/types';
 import { startOfWeek, formatISO } from 'date-fns';
+import { Trash2 } from 'lucide-react';
 
-export default function TeamComponent({ team, isAuthenticated }: { team: Team, isAuthenticated: boolean }) {
+export default function TeamComponent({ team, isAuthenticated, onDeleteTeam }: { team: Team, isAuthenticated: boolean, onDeleteTeam: (teamId: string) => void }) {
   const { 
     employees, 
     items, 
@@ -36,7 +37,30 @@ export default function TeamComponent({ team, isAuthenticated }: { team: Team, i
     <div>
       {isAuthenticated && (
       <div className="bg-white p-6 rounded-2xl shadow-lg mb-8">
-        <h2 className="text-2xl font-semibold mb-4 border-b pb-3">{team.name}</h2>
+        <div className="flex justify-between items-center mb-4 border-b pb-3">
+            <h2 className="text-2xl font-semibold">{team.name}</h2>
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button variant="destructive" className="flex items-center gap-2">
+                    <Trash2 size={16} />
+                    Quitar Grupo
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Estas seguro de eliminar "{team.name}"?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    Esta accion no se puede cancelar. Esto eliminará permanentemente el grupo y todos sus datos asociados, incluyendo empleados y registros de producción.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                  <AlertDialogAction onClick={() => onDeleteTeam(team.id)} className="bg-destructive hover:bg-destructive/90">Eliminar Permanentemente</AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+        </div>
+
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div className="md:col-span-3">
               <label htmlFor={`employeeName-${team.id}`} className="block text-sm font-medium text-gray-700 mb-1">Nombre del nuevo empleado</label>
