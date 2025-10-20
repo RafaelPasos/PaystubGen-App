@@ -48,6 +48,17 @@ const defaultItems: Record<string, Omit<ProductionItem, 'id' | 'teamId'>[]> = {
     { name: 'Blanca', payRate: 13 },
     { name: 'Capote', payRate: 8 },
     { name: 'Tira', payRate: 6 },
+  ],
+  "Corazones agua caliente": [
+    { name: 'Chico', payRate: 10 },
+    { name: 'Mediano', payRate: 12 },
+    { name: 'Grande', payRate: 14 },
+    { name: 'Mini', payRate: 10 },
+  ],
+  "Hojas Estanzuela": [
+    { name: 'Blanca', payRate: 13 },
+    { name: 'Capote', payRate: 8 },
+    { name: 'Tira', payRate: 6 },
   ]
 };
 
@@ -302,9 +313,7 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
             const itemsSnapshot = await getDocsFromServer(collection(firestore, `teams/${team.id}/productionItems`));
             if (itemsSnapshot.empty) {
                 batchNeedsCommit = true;
-                const itemsToCreate = team.name.includes('Corazones') 
-                  ? defaultItems["Corazones"] 
-                  : defaultItems["Hojas"];
+                const itemsToCreate = defaultItems[team.name] || defaultItems["Hojas"];
                 const itemsRef = collection(firestore, `teams/${team.id}/productionItems`);
                 itemsToCreate.forEach(item => {
                     const newItemRef = doc(itemsRef);
