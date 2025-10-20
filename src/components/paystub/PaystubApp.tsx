@@ -101,6 +101,14 @@ export default function PaystubApp() {
     }
   };
 
+  const handleResetProduction = () => {
+    const activeTeam = teams.find(t => t.name === activeTab);
+    if(activeTeam) {
+      resetProduction(activeTeam.id);
+      toast({ title: "Reiniciado", description: `Se reinició la producción para ${activeTeam.name}.`});
+    }
+  };
+
   const generatePDF = () => {
     if (!isAuthenticated) {
       setIsLoginModalOpen(true);
@@ -301,7 +309,7 @@ export default function PaystubApp() {
 
 
           <footer className="mt-12 text-center flex justify-center items-center gap-4">
-            <Button onClick={resetProduction} variant="outline" className="bg-white text-gray-700 font-bold px-10 py-4 rounded-lg shadow-xl hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-400 transition-transform transform hover:scale-105 text-lg h-auto">
+            <Button onClick={handleResetProduction} variant="outline" className="bg-white text-gray-700 font-bold px-10 py-4 rounded-lg shadow-xl hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-400 transition-transform transform hover:scale-105 text-lg h-auto">
                 REINICIAR
             </Button>
             {hasChanges && (

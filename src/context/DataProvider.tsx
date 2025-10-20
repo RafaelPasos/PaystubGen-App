@@ -29,7 +29,7 @@ interface DataContextType {
   handleRateChange: (itemId: string, newRate: string) => void;
   handleProductionChange: (employeeId: string, itemId: string, dayIndex: number, value: string) => void;
   saveAllChanges: () => Promise<void>;
-  resetProduction: () => void;
+  resetProduction: (teamId: string) => void;
 }
 
 const DataContext = createContext<DataContextType | undefined>(undefined);
@@ -111,17 +111,23 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
     setHasChanges(true);
   };
 
-  const resetProduction = useCallback(() => {
-    const updatedProduction: Record<string, ProductionEntry> = {};
-    for (const key in localProduction) {
+  const resetProduction = useCallback((teamId: string) => {
+    const teamEmployeeIds = new Set(employees.filter(e => e.teamId === teamId).map(e => e.id));
+    
+    const updatedProduction: Record<string, ProductionEntry> = { ...localProduction };
+    
+    for (const key in updatedProduction) {
+      const entry = updatedProduction[key];
+      if (teamEmployeeIds.has(entry.employeeId)) {
         updatedProduction[key] = {
-            ...localProduction[key],
+            ...entry,
             quantity: 0
         };
+      }
     }
     setLocalProduction(updatedProduction);
     setHasChanges(true);
-  }, [localProduction]);
+  }, [localProduction, employees]);
 
   const saveAllChanges = async () => {
     if (!firestore) return;
@@ -346,6 +352,7 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
       setEmployees([]);
       setItems([]);
       setProduction([]);
+      if(teams.length === 0) setLoading(false);
       return;
     };
 
@@ -357,11 +364,18 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
     const allProduction: ProductionEntry[] = [];
     
     let teamsProcessed = 0;
+    const totalTeams = teams.length;
+
+    if (totalTeams === 0) {
+      setLoading(false);
+      return;
+    }
 
     teams.forEach(team => {
       const itemsQuery = query(collection(firestore, `teams/${team.id}/productionItems`));
       const itemsUnsub = onSnapshot(itemsQuery, (snapshot) => {
         const teamItems = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as ProductionItem));
+        // Replace all items for this team, keep others
         const otherTeamItems = allItems.filter(i => i.teamId !== team.id);
         allItems.splice(0, allItems.length, ...otherTeamItems, ...teamItems);
         setItems(Array.from(new Map(allItems.map(i => [i.id, i])).values()));
@@ -371,31 +385,33 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
       const empQuery = query(collection(firestore, `teams/${team.id}/employees`));
       const empUnsub = onSnapshot(empQuery, (empSnapshot) => {
         const teamEmployees = empSnapshot.docs.map(d => ({id: d.id, ...d.data()} as Employee));
+        // Replace all employees for this team, keep others
         const otherTeamsEmployees = allEmployees.filter(e => e.teamId !== team.id);
         allEmployees.splice(0, allEmployees.length, ...otherTeamsEmployees, ...teamEmployees);
         setEmployees(Array.from(new Map(allEmployees.map(e => [e.id, e])).values()));
 
         empSnapshot.docChanges().forEach(change => {
+            const empId = change.doc.id;
+            const prodCollectionPath = `teams/${team.id}/employees/${empId}/dailyProduction`;
             if (change.type === "added") {
-                const empId = change.doc.id;
-                const prodQuery = query(collection(firestore, `teams/${team.id}/employees/${empId}/dailyProduction`));
+                const prodQuery = query(collection(firestore, prodCollectionPath));
                 const prodUnsub = onSnapshot(prodQuery, (prodSnapshot) => {
                     const empProduction = prodSnapshot.docs.map(d => ({id: d.id, ...d.data()} as ProductionEntry));
                     const otherEmpProduction = allProduction.filter(p => p.employeeId !== empId);
                     allProduction.splice(0, allProduction.length, ...otherEmpProduction, ...empProduction);
                     setProduction(Array.from(new Map(allProduction.map(p => [p.id, p])).values()));
-                }, err => handleSnapshotError(err, `teams/${team.id}/employees/${empId}/dailyProduction`));
+                }, err => handleSnapshotError(err, prodCollectionPath));
                 unsubscribers.push(prodUnsub);
             }
              if (change.type === 'removed') {
-                const empId = change.doc.id;
-                allProduction.splice(0, allProduction.length, ...allProduction.filter(p => p.employeeId !== empId));
+                const updatedProduction = allProduction.filter(p => p.employeeId !== empId);
+                allProduction.splice(0, allProduction.length, ...updatedProduction);
                 setProduction(Array.from(new Map(allProduction.map(p => [p.id, p])).values()));
             }
         });
         
         teamsProcessed++;
-        if (teamsProcessed >= teams.length) { 
+        if (teamsProcessed >= totalTeams) { 
             setLoading(false);
         }
 
