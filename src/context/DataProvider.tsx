@@ -262,15 +262,17 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
 
     const teamsQuery = query(collection(firestore, 'teams'));
     const teamsUnsub = onSnapshot(teamsQuery, async (teamsSnapshot) => {
-        const teamsData = teamsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Team));
+        let teamsData = teamsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Team));
         
         if (teamsSnapshot.empty) {
             const teamsSnap = await getDocsFromServerNonBlocking(collection(firestore, 'teams'));
             if (teamsSnap.empty) {
                 const batch = writeBatch(firestore);
+                const newTeams: Team[] = [];
                 for (const teamData of defaultTeams) {
                     const teamRef = doc(collection(firestore, 'teams'));
                     batch.set(teamRef, teamData);
+                    newTeams.push({id: teamRef.id, ...teamData});
                     const teamItems = defaultItems[teamData.name] || [];
                     const itemsRef = collection(firestore, `teams/${teamRef.id}/productionItems`);
                     teamItems.forEach(item => {
@@ -285,40 +287,43 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
                         requestResourceData: 'Initial teams and items batch write'
                     }));
                 });
+                teamsData = newTeams; // Use the newly created teams for the rest of the logic
             } else {
-              setTeams(teamsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Team)));
+              teamsData = teamsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Team));
             }
-            setLoading(false);
-        } else {
-            setTeams(teamsData);
-            // Check for new teams without items
-            const itemCreationBatch = writeBatch(firestore);
-            let batchNeedsCommit = false;
-            for (const team of teamsData) {
-                const itemsSnapshot = await getDocsFromServer(collection(firestore, `teams/${team.id}/productionItems`));
-                if (itemsSnapshot.empty) {
-                    batchNeedsCommit = true;
-                    // Default to "Hojas" items if team name is not "Corazones"
-                    const itemsToCreate = defaultItems[team.name] || defaultItems["Hojas"];
-                    const itemsRef = collection(firestore, `teams/${team.id}/productionItems`);
-                    itemsToCreate.forEach(item => {
-                        const newItemRef = doc(itemsRef);
-                        itemCreationBatch.set(newItemRef, { ...item, teamId: team.id });
-                    });
-                }
-            }
+        }
+        
+        setTeams(teamsData);
 
-            if (batchNeedsCommit) {
-                await itemCreationBatch.commit().catch(e => {
-                     errorEmitter.emit('permission-error', new FirestorePermissionError({
-                        operation: 'write',
-                        path: 'productionItems',
-                        requestResourceData: 'Default items for new team batch write'
-                    }));
+        // Check for new teams without items and create them if necessary
+        const itemCreationBatch = writeBatch(firestore);
+        let batchNeedsCommit = false;
+        for (const team of teamsData) {
+            const itemsSnapshot = await getDocsFromServer(collection(firestore, `teams/${team.id}/productionItems`));
+            if (itemsSnapshot.empty) {
+                batchNeedsCommit = true;
+                const itemsToCreate = defaultItems[team.name] || defaultItems["Hojas"];
+                const itemsRef = collection(firestore, `teams/${team.id}/productionItems`);
+                itemsToCreate.forEach(item => {
+                    const newItemRef = doc(itemsRef);
+                    itemCreationBatch.set(newItemRef, { ...item, teamId: team.id });
                 });
             }
-            setLoading(false);
         }
+
+        if (batchNeedsCommit) {
+            await itemCreationBatch.commit().catch(e => {
+                 errorEmitter.emit('permission-error', new FirestorePermissionError({
+                    operation: 'write',
+                    path: 'productionItems',
+                    requestResourceData: 'Default items for new team batch write'
+                }));
+            });
+            // Don't set loading to false yet, let the listeners pick up the new items
+        } else {
+          setLoading(false);
+        }
+
     }, (err) => {
         handleSnapshotError(err, 'teams');
         setLoading(false);
@@ -478,5 +483,3 @@ export const useData = () => {
   }
   return context;
 };
-
-    
