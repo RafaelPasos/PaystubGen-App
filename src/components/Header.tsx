@@ -16,10 +16,10 @@ export default function Header({ isAuthenticated, onLoginClick, onAddTeamClick }
         <div className="w-1/4">
           {/* This space is now empty */}
         </div>
-        <h1 className="text-4xl font-bold text-center text-gray-900 w-1/2">
+        <h1 className="text-4xl font-bold text-left text-gray-900 w-1/2">
           GENERADOR DE RECIBOS DE PAGO
         </h1>
-        <div className="w-1/4 flex justify-end">
+        <div className="w-1/8 flex justify-end">
           {isAuthenticated ? (
             <Button onClick={onAddTeamClick} variant="outline" className="flex items-center gap-2">
               <PlusCircle size={18} />

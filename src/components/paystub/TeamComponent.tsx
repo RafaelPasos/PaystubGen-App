@@ -43,7 +43,7 @@ export default function TeamComponent({ team, isAuthenticated, onDeleteTeam }: {
               <AlertDialogTrigger asChild>
                 <Button variant="destructive" className="flex items-center gap-2">
                     <Trash2 size={16} />
-                    Quitar Grupo
+                    Eliminar
                 </Button>
               </AlertDialogTrigger>
               <AlertDialogContent>
@@ -74,7 +74,7 @@ export default function TeamComponent({ team, isAuthenticated, onDeleteTeam }: {
                   onKeyDown={(e) => e.key === 'Enter' && handleAddEmployee()}
                 />
                 <Button onClick={handleAddEmployee} className="bg-blue-600 text-white font-semibold px-6 py-3 h-auto rounded-lg shadow-md hover:bg-blue-700">
-                  Agregar
+                  + Empleado
                 </Button>
               </div>
             </div>
