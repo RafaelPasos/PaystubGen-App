@@ -35,11 +35,16 @@ const SOFT_PASSWORD = "password"; // A simple, hardcoded password
 
 export default function PaystubApp() {
   const [payDate, setPayDate] = useState<Date | undefined>(new Date());
-  const { employees, items, production, teams, loading, hasChanges, saveAllChanges, resetProduction } = useData();
+  const { teams, employees, items, production, loading, hasChanges, saveAllChanges, resetProduction, addTeam } = useData();
   const { toast } = useToast();
+  
   const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [password, setPassword] = useState('');
+  
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
+  const [password, setPassword] = useState('');
+
+  const [isAddTeamModalOpen, setIsAddTeamModalOpen] = useState(false);
+  const [newTeamName, setNewTeamName] = useState('');
 
 
   const handleLogin = () => {
@@ -59,6 +64,19 @@ export default function PaystubApp() {
         toast({ title: "Exito", description: "Cambios guardados." });
     } catch(e) {
         toast({ title: "Error", description: "No se pudieron guardar los cambios.", variant: "destructive" });
+    }
+  };
+
+  const handleAddTeam = async () => {
+    if (newTeamName.trim()) {
+      try {
+        await addTeam({ name: newTeamName.trim() });
+        toast({ title: "Exito", description: `Grupo '${newTeamName.trim()}' agregado.`});
+        setNewTeamName('');
+        setIsAddTeamModalOpen(false);
+      } catch (e) {
+        toast({ title: "Error", description: "No se pudo agregar el grupo.", variant: "destructive" });
+      }
     }
   };
 
@@ -172,8 +190,13 @@ export default function PaystubApp() {
 
   return (
       <div className="flex flex-col min-h-screen bg-gray-100 text-gray-800">
-        <Header onLoginClick={() => setIsLoginModalOpen(true)} />
+        <Header 
+          isAuthenticated={isAuthenticated}
+          onLoginClick={() => setIsLoginModalOpen(true)}
+          onAddTeamClick={() => setIsAddTeamModalOpen(true)}
+        />
         <main className="flex-1 max-w-7xl mx-auto p-4 sm:p-6 lg:p-8 w-full">
+          {/* Login Modal */}
           <Dialog open={isLoginModalOpen} onOpenChange={setIsLoginModalOpen}>
             <DialogContent className="sm:max-w-[425px]">
               <DialogHeader>
@@ -201,6 +224,33 @@ export default function PaystubApp() {
             </DialogContent>
           </Dialog>
 
+          {/* Add Team Modal */}
+          <Dialog open={isAddTeamModalOpen} onOpenChange={setIsAddTeamModalOpen}>
+            <DialogContent className="sm:max-w-[425px]">
+              <DialogHeader>
+                <DialogTitle>Agregar Nuevo Grupo</DialogTitle>
+                <DialogDescription>
+                  Ingrese el nombre del nuevo grupo. Se le asignarán los artículos de producción por defecto.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="grid gap-4 py-4">
+                 <Input
+                    id="newTeamName"
+                    type="text"
+                    value={newTeamName}
+                    onChange={(e) => setNewTeamName(e.target.value)}
+                    placeholder="Nombre del grupo"
+                    className="w-full p-3"
+                    onKeyDown={(e) => e.key === 'Enter' && handleAddTeam()}
+                  />
+              </div>
+              <DialogFooter>
+                <Button onClick={handleAddTeam} className="w-full bg-blue-600 text-white font-bold py-3 rounded-lg shadow-lg hover:bg-blue-700 text-lg h-auto">
+                  Agregar Grupo
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
 
           <div className="bg-white p-6 rounded-2xl shadow-lg mb-8">
             <h2 className="text-2xl font-semibold mb-4 text-center">Fecha de pago</h2>
