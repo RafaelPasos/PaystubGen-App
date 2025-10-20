@@ -302,7 +302,9 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
             const itemsSnapshot = await getDocsFromServer(collection(firestore, `teams/${team.id}/productionItems`));
             if (itemsSnapshot.empty) {
                 batchNeedsCommit = true;
-                const itemsToCreate = defaultItems[team.name] || defaultItems["Hojas"];
+                const itemsToCreate = team.name.includes('Corazones') 
+                  ? defaultItems["Corazones"] 
+                  : defaultItems["Hojas"];
                 const itemsRef = collection(firestore, `teams/${team.id}/productionItems`);
                 itemsToCreate.forEach(item => {
                     const newItemRef = doc(itemsRef);
