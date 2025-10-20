@@ -33,27 +33,29 @@ interface DataContextType {
 const DataContext = createContext<DataContextType | undefined>(undefined);
 
 const defaultTeams = [
-    { name: "Corazones" },
-    { name: "Hojas" }
+    { name: "Corazones Salitre" },
+    { name: "Corazones agua caliente" },
+    { name: "Hojas Salitre" },
+    { name: "Hojas Estanzuela" }
 ];
 
 const defaultItems: Record<string, Omit<ProductionItem, 'id' | 'teamId'>[]> = {
-  "Corazones": [
+  "Corazones Salitre": [
     { name: 'Chico', payRate: 10 },
     { name: 'Mediano', payRate: 12 },
     { name: 'Grande', payRate: 14 },
     { name: 'Mini', payRate: 10 },
-  ],
-  "Hojas": [
-    { name: 'Blanca', payRate: 13 },
-    { name: 'Capote', payRate: 8 },
-    { name: 'Tira', payRate: 6 },
   ],
   "Corazones agua caliente": [
     { name: 'Chico', payRate: 10 },
     { name: 'Mediano', payRate: 12 },
     { name: 'Grande', payRate: 14 },
     { name: 'Mini', payRate: 10 },
+  ],
+  "Hojas Salitre": [
+    { name: 'Blanca', payRate: 13 },
+    { name: 'Capote', payRate: 8 },
+    { name: 'Tira', payRate: 6 },
   ],
   "Hojas Estanzuela": [
     { name: 'Blanca', payRate: 13 },
@@ -313,7 +315,7 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
             const itemsSnapshot = await getDocsFromServer(collection(firestore, `teams/${team.id}/productionItems`));
             if (itemsSnapshot.empty) {
                 batchNeedsCommit = true;
-                const itemsToCreate = defaultItems[team.name] || defaultItems["Hojas"];
+                const itemsToCreate = defaultItems[team.name] || defaultItems["Hojas Salitre"];
                 const itemsRef = collection(firestore, `teams/${team.id}/productionItems`);
                 itemsToCreate.forEach(item => {
                     const newItemRef = doc(itemsRef);

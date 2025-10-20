@@ -140,7 +140,7 @@ export default function PaystubApp() {
         });
 
         doc.autoTable({
-            head: [['Tipo', ...days, 'Cantidad', (team.name === "Corazones")?'Pago x pza':'Pago x kg', 'Subtotal']],
+            head: [['Tipo', ...days, 'Cantidad', (team.name.includes("Corazones"))?'Pago x pza':'Pago x kg', 'Subtotal']],
             body: tableBody,
             startY: currentY,
             theme: 'grid',
@@ -209,8 +209,8 @@ export default function PaystubApp() {
             </div>
           </div>
           
-          <Tabs defaultValue="Corazones" className="w-full">
-            <TabsList className="grid w-full grid-cols-2 h-auto mb-8">
+          <Tabs defaultValue="Corazones Salitre" className="w-full">
+            <TabsList className="grid w-full grid-cols-4 h-auto mb-8">
               {teams.map(team => (
                  <TabsTrigger key={team.id} value={team.name} className="text-lg font-semibold py-3 px-8 transition-colors duration-300 data-[state=active]:border-blue-500 data-[state=active]:bg-blue-500 data-[state=active]:text-white">
                   {team.name}
